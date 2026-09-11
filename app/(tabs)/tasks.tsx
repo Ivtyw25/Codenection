@@ -1,357 +1,303 @@
-/**
- * SCR-11 — Tasks / Today's Manifest.
- * Route `/tasks` · Goal: work the capacity-sized daily list.
- *
- * The Manifest is deliberately SHORTER when Pressure is high — "presenting a
- * full backlog to an overloaded student is precisely the failure mode the app
- * exists to prevent" (§B.3).
- */
-
-import { useState } from 'react';
-import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Feather from '@expo/vector-icons/Feather';
-
-import { Pip } from '@/components/pip';
 import {
-  Button,
-  Card,
-  Chip,
-  Header,
-  Screen,
-  SegmentedControl,
-  SkeletonRows,
-  Txt,
-  useToast,
-  DragHandle,
-} from '@/components/ui';
-import { domainById, manifest, TOTAL_ACTIVE_TASKS } from '@/mock';
-import { useDemo } from '@/mock/demo';
-import {
-  colors,
-  elevation,
-  MIN_TAP_TARGET,
-  radius,
-  SCREEN_PADDING,
-  space,
-  TAB_BAR_HEIGHT,
-} from '@/theme';
-import { TASK_CONTEXTS, type Task, type TaskContext } from '@/types';
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Code,
+  FileText,
+  Plus,
+  SlidersHorizontal,
+} from 'lucide-react-native';
 
-type Filter = 'All' | TaskContext;
-const FILTERS: Filter[] = ['All', ...TASK_CONTEXTS];
+import { Card, Checkbox, Chip, EmptyState, SegmentedTabs, Txt } from '@/components/ui';
+import { RANGE_FILTERS, TASKS, TASK_CONTEXTS, WEEK } from '@/data/mock';
+import { brand, n, radius, space, status, useScheme } from '@/theme';
+import type { Task, TaskContext } from '@/types';
 
-/** Pressure at or above the Strained threshold shortens the list. */
-const STRAINED_THRESHOLD = 60;
+const ICONS: Record<string, typeof Code> = { CalendarDays, Code, FileText };
 
 export default function TasksScreen() {
+  const scheme = useScheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const toast = useToast();
-  const { capacity, loading, empty } = useDemo();
+  const [range, setRange] = useState('today');
+  const [context, setContext] = useState<TaskContext | 'all'>('all');
 
-  const [filter, setFilter] = useState<Filter>('All');
-  const [done, setDone] = useState<Set<string>>(new Set());
-  /** The calibration check fires at most once a day (§SCR-11 states). */
-  const [calibrationFor, setCalibrationFor] = useState<Task | null>(null);
-  const [calibrationUsedToday, setCalibrationUsedToday] = useState(false);
-
-  const visible = manifest.filter((t) => filter === 'All' || t.context === filter);
-  const allDone = visible.length > 0 && visible.every((t) => done.has(t.id));
-  const nearCapacity = capacity.pressure >= STRAINED_THRESHOLD;
-
-  function complete(task: Task) {
-    setDone((cur) => new Set(cur).add(task.id));
-    toast.show('+1 Care', 'care');
-
-    // Low-confidence estimates flag a Task-Level Calibration Check (§B.2).
-    if (task.lowConfidenceEstimate && !calibrationUsedToday) {
-      setCalibrationFor(task);
-      setCalibrationUsedToday(true);
-    }
-  }
+  const visible = useMemo(
+    () => (context === 'all' ? TASKS : TASKS.filter((t) => t.context === context)),
+    [context],
+  );
 
   return (
-    <>
-      <Screen bottomInset={TAB_BAR_HEIGHT}>
-        <Header
-          title="Today"
-          right={
+    <View style={{ flex: 1, backgroundColor: scheme.ground }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: space[10] }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Forest header ─────────────────────────────────────────────── */}
+        <View style={[styles.header, { paddingTop: insets.top + space[2] }]}>
+          <View style={styles.headerTop}>
+            <View style={styles.dateNav}>
+              <ChevronLeft size={16} color="rgba(255,255,255,0.7)" />
+              <CalendarDays size={14} color={n[0]} />
+              <Txt variant="caption" color={n[0]}>
+                TODAY · OCT 25
+              </Txt>
+              <ChevronRight size={16} color="rgba(255,255,255,0.7)" />
+            </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Sort and filter"
-              style={{
-                width: MIN_TAP_TARGET,
-                height: MIN_TAP_TARGET,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              accessibilityLabel="Filter options"
+              style={styles.iconButton}
             >
-              <Feather name="sliders" size={22} color={colors.text} />
+              <SlidersHorizontal size={17} color={n[0]} />
             </Pressable>
-          }
-        />
+          </View>
 
-        {/* Context filter chips — act on what fits your current situation. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: space[2], paddingVertical: space[3] }}
-        >
-          {FILTERS.map((f) => (
-            <Chip key={f} label={f} selected={filter === f} onPress={() => setFilter(f)} />
-          ))}
-        </ScrollView>
-
-        {/* Capacity note. */}
-        {!loading && !empty ? (
-          <Txt
-            variant="bodySm"
-            color={nearCapacity ? colors.semantic.warning.text : colors.textSecondary}
-            style={{ marginBottom: space[3] }}
-          >
-            {nearCapacity
-              ? "You're near capacity, so today's list is short."
-              : `Sized to your capacity — ${manifest.length} of ${TOTAL_ACTIVE_TASKS} shown.`}
+          <Txt variant="h1" color={n[0]} style={{ marginTop: space[3] }}>
+            Today&apos;s Manifest
           </Txt>
-        ) : null}
 
-        {/* Manifest list. */}
-        {loading ? (
-          <SkeletonRows count={5} />
-        ) : empty ? (
-          <EmptyNothingCaptured onCapture={() => router.push('/capture')} />
-        ) : allDone ? (
-          <AllDone />
-        ) : (
-          <View style={{ gap: space[2] }}>
-            {visible.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                done={done.has(task.id)}
-                onComplete={() => complete(task)}
-                onOpen={() => router.push(`/tasks/${task.id}`)}
-              />
+          {/* Week strip */}
+          <View style={styles.week}>
+            {WEEK.map((d, i) => (
+              <Pressable
+                key={`${d.dow}-${d.day}`}
+                accessibilityRole="button"
+                accessibilityLabel={`October ${d.day}`}
+                accessibilityState={{ selected: !!d.today }}
+                style={[styles.day, d.today && { backgroundColor: n[0] }]}
+              >
+                <Txt
+                  variant="caption"
+                  color={d.today ? scheme.textMuted : 'rgba(255,255,255,0.55)'}
+                >
+                  {d.dow}
+                </Txt>
+                <Txt variant="h4" color={d.today ? brand.forest : n[0]}>
+                  {d.day}
+                </Txt>
+                {d.today ? <View style={styles.todayDot} /> : null}
+              </Pressable>
             ))}
           </View>
-        )}
-      </Screen>
 
-      <CalibrationCheckSheet
-        task={calibrationFor}
-        onClose={() => setCalibrationFor(null)}
-      />
-    </>
+          {/* Range filters */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.ranges}
+          >
+            {RANGE_FILTERS.map((r) => {
+              const on = r.value === range;
+              return (
+                <Pressable
+                  key={r.value}
+                  onPress={() => setRange(r.value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  style={[
+                    styles.range,
+                    { backgroundColor: on ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.10)' },
+                  ]}
+                >
+                  <Txt variant="caption" color={on ? n[0] : 'rgba(255,255,255,0.66)'}>
+                    {r.label}
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* ── Body ──────────────────────────────────────────────────────── */}
+        <View style={styles.body}>
+          <View style={styles.showing}>
+            <Txt variant="bodySm" muted>
+              Showing: Oct 25, 2023
+            </Txt>
+            <Pressable accessibilityRole="button" style={styles.jump}>
+              <Txt variant="label" color={status.success.fg}>
+                Jump to Date
+              </Txt>
+              <ChevronRight size={15} color={status.success.fg} />
+            </Pressable>
+          </View>
+
+          <SegmentedTabs options={TASK_CONTEXTS} value={context} onChange={setContext} />
+
+          <View style={{ gap: space[3], marginTop: space[3] }}>
+            {visible.map((task) => (
+              <TaskCard key={task.id} task={task} onPress={() => router.push(`/task/${task.id}`)} />
+            ))}
+          </View>
+
+          {visible.length === 0 ? (
+            <EmptyState
+              icon={<CalendarDays size={26} color={scheme.textMuted} />}
+              title="Nothing in this context"
+              body="No tasks match this filter for Oct 25."
+              action={{ label: 'Show all', onPress: () => setContext('all') }}
+            />
+          ) : null}
+        </View>
+      </ScrollView>
+
+      {/*
+        Capture FAB.
+
+        The Figma bottom bar is inconsistent between frames — the Shop frame
+        shows a "+" in the centre slot, the Home/Tasks/Pip frames show Pip. The
+        Pip reading won (3 frames to 1), which leaves capture with no entry
+        point, so it gets a FAB on the screen its output lands in.
+      */}
+      <Pressable
+        onPress={() => router.push('/capture')}
+        accessibilityRole="button"
+        accessibilityLabel="Capture a new thought"
+        style={[
+          styles.fab,
+          {
+            backgroundColor: scheme.primary,
+            bottom: space[5],
+            shadowColor: brand.lime,
+          },
+        ]}
+      >
+        <Plus size={24} color={scheme.onPrimary} />
+      </Pressable>
+    </View>
   );
 }
 
-// ── Row ──────────────────────────────────────────────────────────────────────
-
-function TaskRow({
-  task,
-  done,
-  onComplete,
-  onOpen,
-}: {
-  task: Task;
-  done: boolean;
-  onComplete: () => void;
-  onOpen: () => void;
-}) {
-  const domain = domainById(task.domainId);
+function TaskCard({ task, onPress }: { task: Task; onPress: () => void }) {
+  const scheme = useScheme();
+  const Icon = ICONS[task.icon] ?? FileText;
+  const next = task.subtasks.find((s) => !s.done);
+  const doneCount = task.subtasks.filter((s) => s.done).length;
 
   return (
-    <Swipeable
-      friction={2}
-      leftThreshold={64}
-      rightThreshold={64}
-      // Swipe-right completes.
-      renderLeftActions={() => (
-        <View
-          style={{
-            justifyContent: 'center',
-            paddingHorizontal: space[4],
-            backgroundColor: colors.semantic.success.fill,
-            borderRadius: radius.md,
-            marginRight: space[2],
-          }}
-        >
-          <Feather name="check" size={20} color={colors.semantic.success.text} />
-        </View>
-      )}
-      // Swipe-left offers reschedule / defer.
-      renderRightActions={() => (
-        <View style={{ flexDirection: 'row', gap: space[2], marginLeft: space[2] }}>
-          <View
-            style={{
-              justifyContent: 'center',
-              paddingHorizontal: space[4],
-              backgroundColor: colors.semantic.info.fill,
-              borderRadius: radius.md,
-            }}
-          >
-            <Feather name="clock" size={20} color={colors.semantic.info.text} />
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={task.title}>
+      <Card style={{ gap: space[2.5] }}>
+        <View style={styles.cardHead}>
+          <Checkbox checked={task.done} onToggle={() => {}} label={`Complete ${task.title}`} />
+          <View style={[styles.typeIcon, { backgroundColor: scheme.surfaceAlt }]}>
+            <Icon size={15} color={scheme.primary} />
           </View>
-          <View
-            style={{
-              justifyContent: 'center',
-              paddingHorizontal: space[4],
-              backgroundColor: colors.semantic.warning.fill,
-              borderRadius: radius.md,
-            }}
-          >
-            <Feather name="corner-up-right" size={20} color={colors.semantic.warning.text} />
-          </View>
-        </View>
-      )}
-      onSwipeableOpen={(dir) => {
-        if (dir === 'left') onComplete();
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${task.title}${domain ? `, ${domain.name}` : ''}${task.due ? `, due ${task.due}` : ''}`}
-        onPress={onOpen}
-        style={[
-          {
-            minHeight: 56,
-            backgroundColor: colors.card,
-            borderRadius: radius.md,
-            padding: 14,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: space[3],
-          },
-          elevation[1],
-        ]}
-      >
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: done }}
-          accessibilityLabel={`Mark ${task.title} complete`}
-          onPress={onComplete}
-          hitSlop={10}
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: radius.full,
-            borderWidth: done ? 0 : 2,
-            borderColor: colors.borderStrong,
-            backgroundColor: done ? colors.semantic.success.solid : 'transparent',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {done ? <Feather name="check" size={14} color={colors.onFill} /> : null}
-        </Pressable>
-
-        <View style={{ flex: 1, gap: space[1] }}>
-          <Txt
-            variant="h4"
-            color={done ? colors.textDisabled : colors.text}
-            style={done ? { textDecorationLine: 'line-through' } : undefined}
-            numberOfLines={2}
-          >
+          <Txt variant="h4" style={{ flex: 1 }} numberOfLines={2}>
             {task.title}
           </Txt>
-          {domain ? (
-            <View style={{ flexDirection: 'row' }}>
-              <Chip label={domain.name} tint={domain.tint} />
-            </View>
-          ) : null}
         </View>
 
-        <View style={{ alignItems: 'flex-end', gap: space[1] }}>
-          {task.due ? (
-            <Txt variant="bodySm" color={colors.textSecondary}>
-              {task.due}
+        {next ? (
+          <View style={[styles.subPreview, { backgroundColor: scheme.surfaceAlt }]}>
+            <ChevronRight size={14} color={scheme.textMuted} />
+            <Txt variant="bodySm" muted numberOfLines={1} style={{ flex: 1 }}>
+              {next.title}
             </Txt>
-          ) : null}
-          <Feather name="menu" size={16} color={colors.textDisabled} />
-        </View>
-      </Pressable>
-    </Swipeable>
-  );
-}
-
-// ── Empty states ─────────────────────────────────────────────────────────────
-
-/** All done — explicitly no "add more" pressure. */
-function AllDone() {
-  return (
-    <View style={{ alignItems: 'center', paddingVertical: space[6], gap: space[2] }}>
-      <Pip size={132} pose="celebrating" />
-      <Txt variant="h3" center>
-        That&apos;s your capacity for today.
-      </Txt>
-      <Txt variant="bodyMd" color={colors.textSecondary} center>
-        Rest is productive too.
-      </Txt>
-    </View>
-  );
-}
-
-function EmptyNothingCaptured({ onCapture }: { onCapture: () => void }) {
-  return (
-    <View style={{ alignItems: 'center', paddingVertical: space[6], gap: space[3] }}>
-      <Pip size={132} pose="empty" />
-      <Txt variant="bodyMd" color={colors.textSecondary} center>
-        Nothing captured yet. Tap + to brain-dump what&apos;s on your mind.
-      </Txt>
-      <Button label="Capture something" full={false} onPress={onCapture} />
-    </View>
-  );
-}
-
-// ── Calibration check ────────────────────────────────────────────────────────
-
-/**
- * "Was that as heavy as we guessed?" — a small, skippable sheet shown at most
- * once a day, only after completing a low-confidence estimate.
- */
-function CalibrationCheckSheet({ task, onClose }: { task: Task | null; onClose: () => void }) {
-  const [answer, setAnswer] = useState<'lighter' | 'right' | 'heavier'>('right');
-
-  return (
-    <Modal visible={task != null} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1, backgroundColor: colors.scrim }} onPress={onClose} />
-      <View
-        style={[
-          {
-            backgroundColor: colors.card,
-            borderTopLeftRadius: radius.lg,
-            borderTopRightRadius: radius.lg,
-            paddingHorizontal: SCREEN_PADDING,
-            paddingBottom: space[7],
-            gap: space[3],
-          },
-          elevation[3],
-        ]}
-      >
-        <DragHandle />
-        <Txt variant="h3">Was that as heavy as we guessed?</Txt>
-        {task ? (
-          <Txt variant="bodySm" color={colors.textSecondary}>
-            We estimated {task.effortMinutes} minutes for “{task.title}”.
-          </Txt>
+          </View>
         ) : null}
 
-        <SegmentedControl
-          accessibilityLabel="How heavy was it?"
-          options={[
-            { value: 'lighter', label: 'Lighter' },
-            { value: 'right', label: 'Right' },
-            { value: 'heavier', label: 'Heavier' },
-          ]}
-          value={answer}
-          onChange={setAnswer}
-          style={{ marginTop: space[1] }}
-        />
-
-        <Button label="Save" onPress={onClose} />
-        <Button label="Skip" variant="text" onPress={onClose} />
-      </View>
-    </Modal>
+        <View style={styles.meta}>
+          <Chip label={task.due} size="sm" />
+          <Chip label={task.estimate} size="sm" />
+          {task.tag ? <Chip label={task.tag} tone="success" size="sm" /> : null}
+          <Chip label={`${doneCount}/${task.subtasks.length} subtasks`} size="sm" />
+          <Txt variant="caption" color={status.warning.fg}>
+            +{task.loadDelta}% load
+          </Txt>
+        </View>
+      </Card>
+    </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    backgroundColor: brand.forest,
+    paddingHorizontal: space[5],
+    paddingBottom: space[5],
+    borderBottomLeftRadius: space[7],
+    borderBottomRightRadius: space[7],
+  },
+  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dateNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1.5],
+    paddingHorizontal: space[2.5],
+    paddingVertical: space[1],
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  iconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+
+  week: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space[4] },
+  day: {
+    width: 40,
+    paddingVertical: space[1.5],
+    borderRadius: radius.md,
+    alignItems: 'center',
+    gap: space[0.5],
+  },
+  todayDot: {
+    width: 4,
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: brand.lime,
+  },
+
+  ranges: { gap: space[2], paddingTop: space[4] },
+  range: {
+    paddingHorizontal: space[3],
+    paddingVertical: space[1.5],
+    borderRadius: radius.pill,
+  },
+
+  body: { paddingHorizontal: space[4], paddingTop: space[4], gap: space[3] },
+  showing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  jump: { flexDirection: 'row', alignItems: 'center', gap: space[0.5] },
+
+  cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
+  typeIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1],
+    paddingVertical: space[1.5],
+    paddingHorizontal: space[2.5],
+    borderRadius: radius.pill,
+  },
+  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[1.5] },
+
+  fab: {
+    position: 'absolute',
+    right: space[4],
+    width: 56,
+    height: 56,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // The lime focus glow, reused as the FAB's lift.
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+});

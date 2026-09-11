@@ -1,155 +1,113 @@
-/**
- * Buttons.
- * States transcribed from `pip-design-spec.md` Appendix — Component state
- * reference: default `--elev-2`; pressed fill −8% L and scale 0.98 over
- * `--motion-fast`; disabled opacity 0.5 with no elevation; loading swaps the
- * label for an 18px spinner and disables the control.
- */
-
-import {
-  ActivityIndicator,
-  Pressable,
-  View,
-  type PressableProps,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
-
-import { brand, colors, CONTROL_HEIGHT, elevation, MIN_TAP_TARGET, radius, space, useMotion } from '@/theme';
-import { darken } from '@/lib/color';
+import React, { ReactNode } from 'react';
+import { TouchableOpacity, StyleSheet, View } from 'react-native';
+import { useScheme, radius, space, CONTROL_HEIGHT, MIN_TAP_TARGET, status, n } from '@/theme';
 import { Txt } from './Txt';
+import { Spinner } from './Spinner';
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-/**
- * `quiet` is a FILLED `--brand-secondary-onFill` button with a white label —
- * distinct from `secondary`, which is the outlined form. SCR-30's single action
- * uses it, so the Critical screen's CTA reads as calm rather than urgent.
- */
-export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'text' | 'destructive';
-
-export interface ButtonProps extends Omit<PressableProps, 'style' | 'children'> {
+export interface ButtonProps {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  size?: 'sm' | 'md';
   label: string;
-  variant?: ButtonVariant;
+  onPress?: () => void;
+  icon?: ReactNode;
+  iconPosition?: 'left' | 'right';
+  fullWidth?: boolean;
   loading?: boolean;
-  /** Stretch to the container width — the default for sticky footer CTAs. */
-  full?: boolean;
-  leading?: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
+  disabled?: boolean;
 }
 
 export function Button({
-  label,
   variant = 'primary',
-  loading = false,
-  full = true,
-  leading,
+  size = 'md',
+  label,
+  onPress,
+  icon,
+  iconPosition = 'left',
+  fullWidth,
+  loading,
   disabled,
-  style,
-  onPressIn,
-  onPressOut,
-  ...rest
 }: ButtonProps) {
-  const motion = useMotion();
-  const pressed = useSharedValue(0);
+  const scheme = useScheme();
+  
+  const height = size === 'md' ? CONTROL_HEIGHT : 40;
+  
+  let backgroundColor: string | undefined = undefined;
+  let borderColor: string | undefined = undefined;
+  let borderWidth = 0;
+  let textColor = scheme.onPrimary;
+  
+  if (variant === 'primary') {
+    backgroundColor = scheme.primary;
+    textColor = scheme.onPrimary;
+  } else if (variant === 'secondary') {
+    backgroundColor = scheme.surfaceAlt;
+    borderColor = scheme.border;
+    borderWidth = 1;
+    textColor = scheme.text;
+  } else if (variant === 'ghost') {
+    backgroundColor = undefined;
+    textColor = scheme.primary;
+  } else if (variant === 'danger') {
+    backgroundColor = status.danger.solid;
+    textColor = n[0];
+  }
 
-  const isDisabled = Boolean(disabled) || loading;
-
-  // Plain handlers, not useCallback: memoising them bought nothing (Pressable
-  // isn't memoised) and writing to a shared value captured by a hook argument
-  // trips react-hooks/immutability.
-  const handlePressIn: NonNullable<PressableProps['onPressIn']> = (e) => {
-    pressed.value = withTiming(1, motion.t('fast'));
-    onPressIn?.(e);
-  };
-
-  const handlePressOut: NonNullable<PressableProps['onPressOut']> = (e) => {
-    pressed.value = withTiming(0, motion.t('fast'));
-    onPressOut?.(e);
-  };
-
-  const fills: Record<ButtonVariant, { bg: string; pressedBg: string; label: string; border?: string }> = {
-    primary: {
-      bg: colors.action,
-      pressedBg: darken(colors.action, 0.08),
-      label: colors.onFill,
-    },
-    secondary: {
-      bg: 'transparent',
-      pressedBg: brand.secondarySoft,
-      label: colors.actionQuiet,
-      border: colors.actionQuiet,
-    },
-    quiet: {
-      bg: colors.actionQuiet,
-      pressedBg: darken(colors.actionQuiet, 0.08),
-      label: colors.onFill,
-    },
-    text: {
-      bg: 'transparent',
-      pressedBg: 'transparent',
-      label: colors.actionQuiet,
-    },
-    destructive: {
-      bg: colors.semantic.destructive.solid,
-      pressedBg: darken(colors.semantic.destructive.solid, 0.08),
-      label: colors.onFill,
-    },
-  };
-
-  const v = fills[variant];
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 - pressed.value * 0.02 }],
-    backgroundColor: pressed.value > 0.5 ? v.pressedBg : v.bg,
-  }));
-
-  const height = variant === 'text' ? MIN_TAP_TARGET : CONTROL_HEIGHT;
+  const minTarget = Math.max(height, MIN_TAP_TARGET);
+  const minW = Math.max(height, MIN_TAP_TARGET);
 
   return (
-    <AnimatedPressable
+    <TouchableOpacity
       accessibilityRole="button"
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
       accessibilityLabel={label}
-      disabled={isDisabled}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      accessibilityState={{ busy: loading, disabled: disabled || loading }}
+      activeOpacity={0.8}
+      onPress={onPress}
+      disabled={disabled || loading}
       style={[
+        styles.base,
         {
           height,
-          minHeight: MIN_TAP_TARGET,
-          width: full ? '100%' : undefined,
-          borderRadius: radius.md,
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexDirection: 'row',
-          gap: space[2],
-          paddingHorizontal: space[4],
-          borderWidth: v.border ? 1.5 : 0,
-          borderColor: v.border,
-          opacity: isDisabled ? 0.5 : 1,
+          minHeight: minTarget,
+          minWidth: minW,
+          borderRadius: radius.pill,
+          backgroundColor,
+          borderColor,
+          borderWidth,
         },
-        (variant === 'primary' || variant === 'quiet') && !isDisabled ? elevation[2] : null,
-        animatedStyle,
-        style,
+        fullWidth && styles.fullWidth,
+        (disabled || loading) && styles.disabled,
       ]}
-      {...rest}
     >
       {loading ? (
-        <ActivityIndicator size={18} color={v.label} />
+        <Spinner size={20} color={textColor} />
       ) : (
-        <>
-          {leading ? <View>{leading}</View> : null}
-          <Txt variant="h4" color={v.label}>
-            {label}
-          </Txt>
-        </>
+        <View style={styles.content}>
+          {icon && iconPosition === 'left' && <View style={[styles.iconLeft, { marginRight: space[2] }]}>{icon}</View>}
+          <Txt variant="label" color={textColor}>{label}</Txt>
+          {icon && iconPosition === 'right' && <View style={[styles.iconRight, { marginLeft: space[2] }]}>{icon}</View>}
+        </View>
       )}
-    </AnimatedPressable>
+    </TouchableOpacity>
   );
 }
+
+const styles = StyleSheet.create({
+  base: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  fullWidth: {
+    width: '100%',
+  },
+  disabled: {
+    opacity: 0.6,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconLeft: {},
+  iconRight: {},
+});

@@ -1,192 +1,147 @@
 /**
- * Pip — shared domain types.
+ * Domain types, derived from the Figma flows.
  *
- * Frontend stage: these describe the SHAPE of the data the UI renders. No
- * engine, no persistence, no network. The scoring engine described in
- * `pip-product-spec.md` §5 will produce these values later; for now they come
- * from `@/mock`.
+ * Sources: SCR "Home", "Today's Manifest", "Task Detail", "Shop",
+ * "Pip", SCR-20 Capture Sheet, SCR-21 AI Processing Review.
  */
 
-import type { PipStateName } from '@/theme';
+// ── Pip ─────────────────────────────────────────────────────────────────────
 
-// ── Scoring ──────────────────────────────────────────────────────────────────
+/** The five states shown on the Pip / Home headers. */
+export type PipStateName = 'balanced' | 'strained' | 'wilting' | 'depleted' | 'critical';
+
+export interface PipState {
+  name: PipStateName;
+  label: string;
+  /** "Pip feels steady today. Your workloads and vitality are in healthy equilibrium." */
+  blurb: string;
+}
 
 /**
- * The five backbone category tags (`pip-onboarding-and-gtd.md` §A.1).
- * The student never thinks in these terms; the engine always does.
- * mental / time / errands roll up into Pressure; physical / social / rest+mood
- * make up Vitality.
+ * The two headline gauges on Home and Pip.
+ * Pressure is inverted — high is bad — which is why it renders amber while
+ * Vitality renders green at comparable values.
  */
-export type CategoryTag = 'mental' | 'time' | 'physical' | 'social' | 'errands';
-
-/** The four named Vitality sub-stats (`pip-gamification-design.md` §1.3). */
-export type SubStat = 'rest' | 'physical' | 'mood' | 'connection';
-
-export const SUB_STATS: readonly SubStat[] = ['rest', 'physical', 'mood', 'connection'];
-
-export const SUB_STAT_LABEL: Record<SubStat, string> = {
-  rest: 'Rest',
-  physical: 'Physical',
-  mood: 'Mood',
-  connection: 'Connection',
-};
-
-/**
- * Critical has two distinct causes, both routed to SCR-30 but framed
- * differently: Pressure-driven calls for offloading, Vitality-driven for rest.
- */
-export type CriticalCause = 'pressure' | 'vitality';
-
-export interface CapacityState {
-  /** 0–100. Drives Pip's size (inflation). */
+export interface Capacity {
+  /** Workload Pressure, 0–100. Higher is worse. */
   pressure: number;
-  /** 0–100 composite. Drives posture, colour saturation, animation speed. */
+  /** Vitality Reserve, 0–100. Higher is better. */
   vitality: number;
-  subStats: Record<SubStat, number>;
-  /** Direction over the last 3 days, for the dashboard trend arrow. */
-  trend: 'up' | 'down' | 'flat';
-  /** Days 1–7: scores are badged "Estimating…" (`§A.9` cold start). */
-  isColdStart: boolean;
+  pressureNote: string;
+  vitalityNote: string;
 }
 
-// ── Life domains ─────────────────────────────────────────────────────────────
-
-/**
- * The student's real, named commitments — the surface layer they see and the
- * app talks to them about (`pip-onboarding-and-gtd.md` §A.1).
- */
-export interface LifeDomain {
+export interface Vital {
   id: string;
-  /** e.g. "Debate Club President", "Varsity Swim Training". */
+  label: string;
+  value: number;
+  /** Lucide icon name. */
+  icon: string;
+}
+
+export interface PipProfile {
   name: string;
-  /** Backbone tags. A domain can carry several. */
-  categories: CategoryTag[];
-  /** Rough hours per week (§A.4). */
-  hoursPerWeek: number;
-  /**
-   * −1 = purely draining … +1 = deeply fulfilling (§A.6).
-   * A fulfilling domain both costs less Pressure and feeds Vitality.
-   */
-  fulfillment: number;
-  /** Steady vs. spiky. Spiky domains are what forecasting watches hardest. */
-  volatility: 'steady' | 'spiky';
-  /** Tint used for this domain's chip throughout the UI. */
-  tint: string;
+  level: number;
+  sparks: number;
+  state: PipState;
+  capacity: Capacity;
+  vitals: Vital[];
+  /** Consecutive balanced days. */
+  streakDays: number;
+  /** Which of `streakDays` slots are filled, for the streak dot row. */
+  streakGoal: number;
 }
 
-// ── Tasks ────────────────────────────────────────────────────────────────────
+// ── Tasks ───────────────────────────────────────────────────────────────────
 
-/** Item lifecycle (`pip-onboarding-and-gtd.md` §B.5). */
-export type TaskStatus =
-  | 'captured'
-  | 'ai-proposed'
-  | 'active'
-  | 'deferred'
-  | 'done'
-  | 'discarded';
+/** The @-prefixed contexts in the Manifest filter row. */
+export type TaskContext = '@academics' | '@club' | '@errands' | '@internship';
 
-/** GTD contexts — filter to what's actionable right now. */
-export type TaskContext = '@library' | '@online' | '@errands' | '@low-energy';
-
-export const TASK_CONTEXTS: readonly TaskContext[] = [
-  '@library',
-  '@online',
-  '@errands',
-  '@low-energy',
-];
-
-export interface Task {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  /** The Life Domain this belongs to; it inherits that domain's tags. */
-  domainId?: string;
-  /** Direct category tag when no domain fits (§B.2 step 2). */
-  categories?: CategoryTag[];
-  context?: TaskContext;
-  /** Human-facing due label, e.g. "Today", "Thu". */
-  due?: string;
-  /** Effort estimate in minutes. */
-  effortMinutes?: number;
-  /** Flags a later Task-Level Calibration Check (§B.2 step 5). */
-  lowConfidenceEstimate?: boolean;
-  notes?: string;
-  subTasks?: SubTask[];
-  /** 2-minute rule — "just do it now" rather than scheduled (§B.2 step 3). */
-  trivial?: boolean;
-}
+export type TaskLoad = 'low' | 'medium' | 'high';
 
 export interface SubTask {
   id: string;
   title: string;
   done: boolean;
+  /** Exactly one sub-task may carry the "Next Action" pill. */
+  nextAction?: boolean;
 }
 
-// ── Gamification ─────────────────────────────────────────────────────────────
-
-export type TierName = 'hatchling' | 'sprout' | 'companion' | 'guardian' | 'elder';
-
-export interface Tier {
-  name: TierName;
-  label: string;
-  minXp: number;
-  maxXp: number | null;
-  unlocks: string;
-}
-
-/** §1.5 — cumulative XP thresholds. */
-export const TIERS: readonly Tier[] = [
-  { name: 'hatchling', label: 'Hatchling', minXp: 0, maxXp: 199, unlocks: 'Base Pip skin, starter habitat' },
-  { name: 'sprout', label: 'Sprout', minXp: 200, maxXp: 599, unlocks: 'First accessory slot, 2 habitat items' },
-  { name: 'companion', label: 'Companion', minXp: 600, maxXp: 1499, unlocks: 'Second accessory slot, ambient habitat effects' },
-  { name: 'guardian', label: 'Guardian', minXp: 1500, maxXp: 3499, unlocks: 'Rare cosmetic set, send flares to friends' },
-  { name: 'elder', label: 'Elder', minXp: 3500, maxXp: null, unlocks: 'Full customization set, seasonal cosmetics' },
-];
-
-export interface Wallet {
-  sparks: number;
-  xp: number;
-  carePoints: number;
-  /** Consecutive days without hitting Critical. */
-  balanceStreak: number;
-  tier: TierName;
-}
-
-export interface LedgerEntry {
+export interface Resource {
   id: string;
-  /** Never negative — no day at any state ever subtracts XP or Sparks. */
-  xp: number;
-  sparks: number;
-  reason: string;
-  when: string;
+  name: string;
+  /** "PDF", "Doc", … */
+  kind: string;
+  size: string;
+  /** Download vs. open-external affordance. */
+  external?: boolean;
 }
 
-// ── Profile ──────────────────────────────────────────────────────────────────
-
-export interface UserProfile {
-  firstName: string;
-  pipName: string;
-  /** Index into the starter skin swatches chosen at SCR-02. */
-  skinIndex: number;
-  domains: LifeDomain[];
-  wallet: Wallet;
+export interface Task {
+  id: string;
+  title: string;
+  done: boolean;
+  context: TaskContext;
+  /** Free tag shown as a filled chip — "#Leadership", "#Academics". */
+  tag?: string;
+  /** "Today, 4:00 PM" */
+  due: string;
+  /** "15 min", "1h", "90m" */
+  estimate: string;
+  load: TaskLoad;
+  /** Cognitive-load delta, e.g. +3 renders "+3% load". */
+  loadDelta: number;
+  subtasks: SubTask[];
+  notes?: string;
+  resources: Resource[];
+  /** The green "Pip's note" callout on Task Detail. */
+  pipNote?: string;
+  /** Lucide icon rendered in the row's leading square. */
+  icon: string;
 }
 
-// ── Mascot ───────────────────────────────────────────────────────────────────
+// ── Capture → Review (SCR-20 → SCR-21) ──────────────────────────────────────
 
-/**
- * Journey / touchpoint states used on specific screens
- * (`pip-mascot-identity.md` §1.3). These are authored poses, distinct from the
- * five live capacity states which are DERIVED from the scores.
- */
-export type PipPose =
-  | 'welcome'
-  | 'listening'
-  | 'thinking'
-  | 'celebrating'
-  | 'tierUnlock'
-  | 'resting'
-  | 'empty'
-  | 'silhouette';
+/** A task the AI proposes in the Review sheet, before the user commits it. */
+export interface ProposedTask {
+  id: string;
+  title: string;
+  context: TaskContext;
+  due: string;
+  estimate: string;
+  load: TaskLoad;
+  subtasks: string[];
+  /** Renders the blue "Calibrate later" hint chip. */
+  calibrateLater?: boolean;
+}
 
-export type { PipStateName };
+/** The amber "Just do it now (2-minute rule)" card. */
+export interface QuickWin {
+  id: string;
+  title: string;
+  note: string;
+  done: boolean;
+}
+
+export interface CaptureReview {
+  proposed: ProposedTask[];
+  quickWin?: QuickWin;
+  /** "Fits today's remaining cognitive budget (45% left)" */
+  budgetRemaining: number;
+  /** Sparks awarded on commit. */
+  sparksReward: number;
+}
+
+// ── Shop ────────────────────────────────────────────────────────────────────
+
+export type ShopCategory = 'skins' | 'hats' | 'habitat' | 'auras';
+
+export interface ShopItem {
+  id: string;
+  name: string;
+  price: number;
+  category: ShopCategory;
+  /** Resolved via the registry in `src/data/skins.ts`. */
+  image: number;
+  owned?: boolean;
+}

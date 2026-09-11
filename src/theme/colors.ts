@@ -1,156 +1,173 @@
 /**
- * Pip — colour tokens.
- * Transcribed verbatim from `spec-doc/pip-design-spec.md` §1.1.
+ * Examon design system — colour tokens.
+ * Derived from the "Examon Design System Teardown" (designlang v12.21.0, 16 routes).
  *
- * Contrast ratios noted in comments are the spec's own verified WCAG 2.1 AA
- * figures. Do not substitute the display shade for the `onFill` shade under
- * normal-weight text — that is exactly the pairing that fails AA.
+ * The teardown grades every extracted value `system` / `drift` / `artifact`.
+ * This file adopts `system` as-is, consolidates `drift`, and DISCARDS `artifact`
+ * (measurement noise — computed offsets, transparent scaffolding, browser defaults).
+ *
+ * Rule: components import from `@/theme`. Never a raw hex in a component.
  */
 
-// ── 1.1.1 Brand ──────────────────────────────────────────────────────────────
+// ── Brand ───────────────────────────────────────────────────────────────────
+// "The forest green appears 2,140 times across 16 routes — unambiguously the
+//  system's spine, and its pairing with the lime is the single strongest
+//  decision in the whole design."
 export const brand = {
-  /** Clay orange — Pip's body colour. Display / large text / non-text ONLY. */
-  primary: '#E8734A',
-  /** Primary button fill under white text. 5.07:1 on white — AA pass. */
-  primaryOnFill: '#BC4A25',
-  /** Primary tint — selected chips, washes. */
-  primarySoft: '#FBEAE2',
-
-  /** Grounding teal — calm, recovery. Display / large text / non-text ONLY. */
-  secondary: '#3B9B8F',
-  /** Teal button fill under white text. 5.11:1 on white — AA pass. */
-  secondaryOnFill: '#2A7A6F',
-  /** Teal tint. */
-  secondarySoft: '#E2F2EF',
-
-  /** Warm honey — Sparks, XP, celebration. Non-text / large only. */
-  accent: '#FCE79A',
-  /** Text/icon on honey. 6.27:1 on accent — AA pass. */
-  accentText: '#6B4E00',
+  /** Forest green. The spine. 2,140 uses. */
+  forest: '#26402b',
+  /** Lime. The hero pairing partner. 360 uses. */
+  lime: '#79eb56',
+  /** Amber. Sparingly — 33 uses. Non-text / large only. */
+  amber: '#fdd130',
+  /** Brand-tinted green-grey. 52 uses. */
+  moss: '#536555',
 } as const;
-
-// ── 1.1.2 Neutral & surface ──────────────────────────────────────────────────
-export const neutral = {
-  /** App background — warm paper. */
-  bg: '#FBF7F2',
-  /** Raised surface / grouped section behind cards. */
-  surface: '#F5EEE6',
-  /** Card / sheet fill. */
-  card: '#FFFFFF',
-  /** Muted fill — skeletons, inactive chips, slider track. */
-  muted: '#F0E8DE',
-  /** Hairline border, 1px. */
-  border: '#E7DCCF',
-  /** Emphasis border / focus-adjacent. */
-  borderStrong: '#D8C7B4',
-
-  /** Primary text — 12.4:1 on bg. */
-  textPrimary: '#3D2C24',
-  /** Secondary text — 5.08:1 on bg. */
-  textSecondary: '#7A6659',
-  /** Disabled text — 2.35:1. Decorative/non-essential ONLY, never load-bearing. */
-  textDisabled: '#B0A196',
-} as const;
-
-// ── 1.1.3 Functional / semantic ──────────────────────────────────────────────
-export const semantic = {
-  success: { fill: '#E4F5EC', text: '#1F6B4A', solid: '#2E8B60' }, // 5.70:1 AA
-  warning: { fill: '#FCF0DA', text: '#8A5A0C', solid: '#C9871A' }, // 5.25:1 AA
-  destructive: { fill: '#FBE9E9', text: '#9E3535', solid: '#CF4A4A' }, // 5.95:1 AA
-  info: { fill: '#E8F0FB', text: '#2A5B96', solid: '#3B7DD8' }, // 6.03:1 AA
-} as const;
-
-export type SemanticName = keyof typeof semantic;
-
-// ── 1.1.4 Pip state colours (map onto the semantic ramp) ─────────────────────
-export type PipStateName =
-  | 'balanced'
-  | 'strained'
-  | 'wilting'
-  | 'depleted'
-  | 'critical';
-
-export const pipState = {
-  balanced: {
-    fill: semantic.success.fill,
-    text: semantic.success.text,
-    silhouette: semantic.success.solid,
-    label: 'Balanced',
-  },
-  strained: {
-    fill: semantic.warning.fill,
-    text: semantic.warning.text,
-    silhouette: semantic.warning.solid,
-    label: 'Strained',
-  },
-  wilting: {
-    fill: semantic.info.fill,
-    text: semantic.info.text,
-    silhouette: semantic.info.solid,
-    label: 'Wilting',
-  },
-  depleted: {
-    fill: semantic.destructive.fill,
-    text: semantic.destructive.text,
-    silhouette: semantic.destructive.solid,
-    label: 'Depleted & overloaded',
-  },
-  /** Critical is the one solid-fill state — white text on solid red. */
-  critical: {
-    fill: '#9E3535',
-    text: '#FFFFFF',
-    silhouette: '#9E3535',
-    label: 'Critical',
-  },
-} as const satisfies Record<
-  PipStateName,
-  { fill: string; text: string; silhouette: string; label: string }
->;
 
 /**
- * Mascot-only colours.
- *
- * The design spec's palette covers the UI; these two are described in
- * `pip-mascot-identity.md` §1.1 but never given tokens ("cheeks carry a soft
- * warmer blush", "two large simple round eyes with a single soft highlight
- * each"). They live here so the mascot still has no raw hex in its render.
+ * Verified pairings from the teardown's own WCAG measurements.
+ * These are the two combinations the system is built on — both AAA.
  */
-export const mascot = {
-  /** Warm blush, laid over the body colour at partial opacity. */
-  blush: '#C2452A',
-  /** The single specular highlight per eye — the one gloss on a matte body. */
-  highlight: '#FFFFFF',
+export const pairing = {
+  /** #26402b on #79eb56 — 7.47:1, AAA. The hero pairing. */
+  forestOnLime: { fg: brand.forest, bg: brand.lime, ratio: 7.47 },
+  /** #ffffff on #26402b — 11.35:1, AAA. Primary button. */
+  whiteOnForest: { fg: '#ffffff', bg: brand.forest, ratio: 11.35 },
 } as const;
 
-// ── 1.1.5 Semantic aliases — use THESE in components, not raw hex ────────────
-export const colors = {
-  bg: neutral.bg,
-  surface: neutral.surface,
-  card: neutral.card,
-  muted: neutral.muted,
-  border: neutral.border,
-  borderStrong: neutral.borderStrong,
-
-  text: neutral.textPrimary,
-  textSecondary: neutral.textSecondary,
-  textDisabled: neutral.textDisabled,
-
-  /** Primary CTAs. */
-  action: brand.primaryOnFill,
-  /** Secondary CTAs. */
-  actionQuiet: brand.secondaryOnFill,
-  /** `#BC4A25` @ 40%, drawn with a 2px offset. */
-  focusRing: 'rgba(188, 74, 37, 0.4)',
-
-  brand,
-  semantic,
-  pipState,
-  mascot,
-
-  /** Pure white, for text on solid fills. */
-  onFill: '#FFFFFF',
-  /** Full-screen scrim — SCR-09 coach marks, SCR-30 intervention. */
-  scrim: 'rgba(61, 44, 36, 0.55)',
+// ── Neutral ramp ────────────────────────────────────────────────────────────
+// Teardown: "Twelve neutrals for what is functionally a five-step need. Three
+// distinct grey families in play at once. Consolidating to one family would
+// remove six tokens without any visible change."
+//
+// Consolidated onto ONE family (Tailwind gray). The bespoke #ebebeb (10,272
+// uses) maps to n200 #e5e7eb — a 1.6/255 delta, visually identical, and it
+// collapses the largest bespoke token into the shared ramp.
+export const n = {
+  0: '#ffffff',
+  50: '#f9fafb',
+  100: '#f3f4f6',
+  /** Hairline border. Absorbs bespoke #ebebeb (10,272 uses). */
+  200: '#e5e7eb',
+  300: '#d1d5db',
+  /**
+   * ⚠️ NON-TEXT ONLY. 2.54:1 on white — roughly half the AA threshold.
+   * The teardown's #1 accessibility finding (16 failing instances).
+   * For muted text use `n[500]` instead. Disabled/decorative fills only.
+   */
+  400: '#9ca3af',
+  /** Muted text. 4.83:1 on white — AA. This is the fix for the n400 failures. */
+  500: '#6b7280',
+  /** Secondary text. 7.0:1 on white — AAA. */
+  600: '#4b5563',
+  700: '#374151',
+  /** Primary text. 17.72:1 on white — AAA. */
+  900: '#18181b',
 } as const;
 
-export type Colors = typeof colors;
+// ── Semantic / status ───────────────────────────────────────────────────────
+// Note: the teardown flags #16a34a as a FOURTH green — Tailwind green-600,
+// "brand-adjacent but not in the system". Discarded. Success derives from the
+// brand forest so status stays inside the brand family.
+export const status = {
+  success: { fg: '#1d6b3f', bg: '#e4f0e6', solid: '#2f7d4f' },
+  warning: { fg: '#7a5310', bg: '#f7eed6', solid: '#9a6a12' },
+  danger: { fg: '#8f3725', bg: '#f5e3dd', solid: '#a8422c' },
+  info: { fg: '#2b5b7d', bg: '#e2ecf2', solid: '#3a7ba3' },
+} as const;
+
+export type StatusName = keyof typeof status;
+
+// ── Themes ──────────────────────────────────────────────────────────────────
+// Teardown: "A real dark theme ships — 116 CSS custom properties with paired
+// light/dark values. Primary and secondary hold constant across both themes;
+// only the accent swaps, from amber #fdd130 in light to a near-white blush
+// #fef2f2 in dark. Surfaces move to #121718 and #21362d."
+/**
+ * A resolved colour scheme.
+ *
+ * Values are typed `string` deliberately. With `as const` each role would carry
+ * a singleton literal type (`'#f3f4f6'`), so any component that assigns one
+ * role's colour into a variable initialised from another's — the normal shape
+ * of a variant switch — would fail to compile for no real reason.
+ */
+export interface Scheme {
+  ground: string;
+  surface: string;
+  surfaceAlt: string;
+  sunk: string;
+
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  textDisabled: string;
+
+  border: string;
+  borderStrong: string;
+
+  primary: string;
+  onPrimary: string;
+  secondary: string;
+  onSecondary: string;
+  accent: string;
+  onAccent: string;
+
+  focus: string;
+  scrim: string;
+}
+
+export const light: Scheme = {
+  ground: n[50],
+  surface: n[0],
+  surfaceAlt: n[100],
+  sunk: n[100],
+
+  text: n[900],
+  textSecondary: n[600],
+  textMuted: n[500],
+  /** ⚠️ Never load-bearing text — see n[400]. */
+  textDisabled: n[400],
+
+  border: n[200],
+  borderStrong: n[300],
+
+  primary: brand.forest,
+  /** Text/icon on `primary`. 11.35:1 — AAA. */
+  onPrimary: '#ffffff',
+  secondary: brand.lime,
+  /** Text/icon on `secondary`. 7.47:1 — AAA. */
+  onSecondary: brand.forest,
+  accent: brand.amber,
+  onAccent: n[900],
+
+  /** Accent-coloured focus ring — reinforces brand over the browser default. */
+  focus: brand.lime,
+  scrim: 'rgba(24, 24, 27, 0.55)',
+};
+
+export const dark: Scheme = {
+  ground: '#121718',
+  surface: '#1a211c',
+  surfaceAlt: '#21362d',
+  sunk: '#0d1211',
+
+  text: '#e9ebe5',
+  textSecondary: '#a8b2a9',
+  textMuted: '#768178',
+  textDisabled: '#5b655d',
+
+  border: '#2c3630',
+  borderStrong: '#3b463e',
+
+  /** Primary holds constant across themes — but lifts for text legibility. */
+  primary: brand.forest,
+  onPrimary: '#ffffff',
+  secondary: brand.lime,
+  onSecondary: brand.forest,
+  /** The one token that swaps: amber → near-white blush. */
+  accent: '#fef2f2',
+  onAccent: '#18181b',
+
+  focus: brand.lime,
+  scrim: 'rgba(0, 0, 0, 0.66)',
+};

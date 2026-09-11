@@ -6,13 +6,13 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "backgroundColor": "#FBF7F2",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#f9fafb",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FBF7F2"
+      "backgroundColor": "#f9fafb"
     },
     "ios": {
       "supportsTablet": false,
@@ -21,7 +21,7 @@
     "android": {
       "package": "com.pip.app",
       "adaptiveIcon": {
-        "backgroundColor": "#FCE79A",
+        "backgroundColor": "#26402b",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },

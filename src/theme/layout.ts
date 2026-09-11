@@ -1,105 +1,125 @@
 /**
- * Pip — spatial, shape and elevation tokens.
- * From `spec-doc/pip-design-spec.md` §1.3.
+ * Examon design system — spacing, radius, elevation.
  */
-
 import type { ViewStyle } from 'react-native';
 
-/** 8pt grid with a 4pt half-step. */
+/**
+ * ── Spacing ────────────────────────────────────────────────────────────────
+ * The teardown measured two different things and only one is a spacing system.
+ * The `gap` ramp is the real one: "Flex and grid gap is where intent actually
+ * lives, because nothing inherits it. This is a clean 4px-based ramp."
+ *
+ * The extractor's reported "spacing scale" (1, 46, 71, 105, 277, 290 …) is
+ * DISCARDED — those are "measured layout offsets, not tokens … artifacts of
+ * where things landed at a 1280px viewport". Likewise its declared 2px base
+ * unit, which was a GCD inferred across noisy values rather than a real token.
+ */
 export const space = {
-  0: 0,
+  /** The single sub-step. */
+  0.5: 2,
   1: 4,
+  1.5: 6,
   2: 8,
+  2.5: 10,
   3: 12,
+  3.5: 14,
   4: 16,
-  5: 24,
-  6: 32,
-  7: 48,
-  8: 64,
+  5: 20,
+  6: 24,
+  7: 28,
+  8: 32,
+  9: 36,
+  10: 40,
+  /** Deliberate jump — section rhythm. */
+  20: 80,
+  24: 96,
+  32: 128,
 } as const;
 
-/** Default screen side padding, card internal padding. */
+/** Screen side padding and card interior. */
 export const SCREEN_PADDING = space[4]; // 16
-/** Section vertical gap. */
-export const SECTION_GAP = space[5]; // 24
+/** Gap between sections. */
+export const SECTION_GAP = space[6]; // 24
 
 /**
- * Corner radius. The soft/cozy direction lives largely here —
- * nothing interactive is below `md`.
+ * ── Radius ─────────────────────────────────────────────────────────────────
+ * "The pill is the signature. 9999px at 583 uses — every button, every avatar.
+ *  Paired with 16px for cards (298) and 4px for small chrome (196), that is a
+ *  coherent three-tier shape language you could write down in one line."
+ *
+ * Discarded outliers: 22px (1 use), 50px (1 use), 32px (3 uses), 8px (26 uses,
+ * "sitting awkwardly between the 4 and 12 steps"), and 6.4px — a third-party
+ * auth widget's 0.4rem, "matching nothing else in the scale".
  */
 export const radius = {
-  /** Dividers only. */
-  sharp: 0,
-  /** Chips, small inputs, badges. */
-  sm: 8,
-  /** Buttons, list rows, input fields. */
-  md: 14,
-  /** Cards, sheet top corners. */
-  lg: 22,
-  /** Pip habitat container, hero cards. */
-  xl: 28,
-  /** Pills, avatar, FAB, streak dots. */
-  full: 999,
+  /** Small chrome — tags, inline marks. 196 uses. */
+  sm: 4,
+  /** Nested surfaces, inputs. 130 uses. */
+  md: 12,
+  /** Cards, sheets. 298 uses. */
+  lg: 16,
+  /** The signature. Buttons, avatars, chips. 583 uses. */
+  pill: 9999,
 } as const;
 
-/**
- * Elevation. Warm-tinted (`rgba(61,44,36,…)`), never neutral grey —
- * grey shadows read cold and templated.
- *
- * iOS reads shadow*; Android reads elevation. Both are provided so a single
- * token gives the same visual weight on each platform.
- */
-const SHADOW_COLOR = '#3D2C24';
+export type RadiusName = keyof typeof radius;
 
+/**
+ * ── Elevation ──────────────────────────────────────────────────────────────
+ * Worst-scoring category in the teardown at 50/100 — 31 unique shadows, of
+ * which "the remaining 29 are mostly rgba(0,0,0,0) triples — Tailwind's
+ * ring/shadow scaffolding emitting fully transparent layers that render nothing
+ * but still count as distinct values."
+ *
+ * Collapsed to the three real levels, exactly as the teardown prescribes
+ * ("a sm / md / lg scale would cover every genuine use").
+ */
 export const elevation = {
-  /** none */
-  0: {} as ViewStyle,
-  /** 0 1px 2px rgba(61,44,36,0.06) — chips, resting rows. */
-  1: {
-    shadowColor: SHADOW_COLOR,
+  none: {} as ViewStyle,
+  /** Resting chrome. */
+  sm: {
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 2,
     elevation: 1,
   } as ViewStyle,
-  /** 0 2px 8px rgba(61,44,36,0.08) — cards. */
-  2: {
-    shadowColor: SHADOW_COLOR,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  } as ViewStyle,
-  /** 0 6px 20px rgba(61,44,36,0.10) — bottom sheets, FAB. */
-  3: {
-    shadowColor: SHADOW_COLOR,
-    shadowOffset: { width: 0, height: 6 },
+  /** Cards. Note the site's card default is shadow:none — lift is opt-in. */
+  md: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowRadius: 12,
+    elevation: 4,
   } as ViewStyle,
-  /** 0 12px 32px rgba(61,44,36,0.14) — Critical overlay, dialogs. */
-  4: {
-    shadowColor: SHADOW_COLOR,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.14,
-    shadowRadius: 32,
-    elevation: 16,
+  /** Lifted card / sheet. From the real `0 10px 30px -12px rgba(0,0,0,.55)`. */
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 18,
+    elevation: 12,
   } as ViewStyle,
 } as const;
 
-/**
- * Accessibility floor: every interactive element is at least 44×44pt.
- * Referenced directly by primitives rather than re-deriving it per component.
- */
-export const MIN_TAP_TARGET = 44;
+export type ElevationName = keyof typeof elevation;
 
-/** Bottom tab bar height, excluding the safe-area inset (§3.1). */
+/**
+ * The lime focus glow — `0 0 8px 2px rgba(121,235,86,.45)`.
+ * "A genuinely nice touch — an accent-colored focus ring that reinforces the
+ *  brand instead of falling back to the browser default." Kept verbatim.
+ */
+export const focusGlow: ViewStyle = {
+  shadowColor: '#79eb56',
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.45,
+  shadowRadius: 8,
+  elevation: 6,
+};
+
+/** Accessibility floor for every interactive element. */
+export const MIN_TAP_TARGET = 44;
+/** Standard control height — buttons, inputs. */
+export const CONTROL_HEIGHT = 48;
 export const TAB_BAR_HEIGHT = 56;
-/** Standard screen header height. */
 export const HEADER_HEIGHT = 56;
-/** Primary button / input field height. */
-export const CONTROL_HEIGHT = 52;
-/** Centre Capture FAB diameter, raised 12px above the bar. */
-export const FAB_SIZE = 56;
-export const FAB_LIFT = 12;

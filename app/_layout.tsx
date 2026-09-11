@@ -1,13 +1,3 @@
-/**
- * Root layout.
- *
- * Sets up fonts, gesture handling, safe areas, and the transition patterns from
- * `pip-design-spec.md` §3.2:
- *   - full-page push  → tab roots, domain detail, settings
- *   - bottom sheet    → capture, AI review, nudge, check-in, task detail
- *   - full-screen modal → Critical intervention, onboarding, tier unlock
- */
-
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -15,97 +5,70 @@ import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
-import {
-  Nunito_400Regular,
-  Nunito_600SemiBold,
-  Nunito_700Bold,
-  Nunito_800ExtraBold,
-} from '@expo-google-fonts/nunito';
+// Imported by weight-specific subpath, NOT from the package barrel. The barrel
+// pulls all 18 faces (nine weights x roman/italic) into the bundle; these four
+// are the only ones the type scale uses. The teardown called dropping the
+// unused weights "free bytes" — this is where that saving is actually taken.
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 
-import { ToastProvider } from '@/components/ui';
-import { DemoProvider } from '@/mock/demo';
-import { colors, radius } from '@/theme';
+import { useScheme } from '@/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
-  /* no-op: the splash may already be hidden on fast refresh */
+  /* already hidden — not fatal */
 });
 
-/**
- * Bottom-sheet routes.
- *
- * `sheetAllowedDetents` is REQUIRED on Android — without it react-native-screens
- * lays a `formSheet` out at zero height and the sheet appears not to open at
- * all. The detent per route matches the height the spec gives it: the capture
- * and review sheets are full-height, the check-in is "~40%", and the nudge is
- * compact.
- */
-const sheet = {
-  presentation: 'transparentModal',
-  animation: 'slide_from_bottom',
-  contentStyle: { backgroundColor: 'transparent' },
-} as const;
-
 export default function RootLayout() {
+  const scheme = useScheme();
+
+  /**
+   * Only the four weights the design system actually uses. The teardown found
+   * the source site shipped seven and used four; dropping 100/200/300 is
+   * "free bytes" with no visual consequence.
+   */
   const [fontsLoaded, fontError] = useFonts({
-    Nunito_400Regular,
-    Nunito_600SemiBold,
-    Nunito_700Bold,
-    Nunito_800ExtraBold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
   });
 
   useEffect(() => {
     if (fontsLoaded || fontError) SplashScreen.hideAsync().catch(() => {});
   }, [fontsLoaded, fontError]);
 
+  // Hold the splash rather than flashing a fallback face. `fontError` still
+  // releases it — shipping system-font text beats hanging on the splash.
   if (!fontsLoaded && !fontError) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <DemoProvider>
-        <ToastProvider>
-        <StatusBar style="dark" />
+        <StatusBar style="auto" />
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: colors.bg },
+            contentStyle: { backgroundColor: scheme.ground },
             animation: 'slide_from_right',
           }}
         >
-          <Stack.Screen name="index" options={{ animation: 'none' }} />
-          <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
-
-          {/* Onboarding — full-screen, no tab bar (§3.1). */}
-          <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
-
-          {/* The main shell. */}
-          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-
-          {/* Bottom sheets. */}
-          <Stack.Screen name="capture/index" options={sheet} />
-          <Stack.Screen name="capture/review" options={sheet} />
-          <Stack.Screen name="checkin" options={sheet} />
-          <Stack.Screen name="nudge" options={sheet} />
-          <Stack.Screen name="tasks/[id]" options={sheet} />
-
-          {/* Full-screen modals. */}
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="shop" options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen
-            name="critical"
-            options={{
-              presentation: 'fullScreenModal',
-              animation: 'fade',
-              // "not dismissible by back-swipe — must choose an action" (SCR-30)
-              gestureEnabled: false,
-            }}
+            name="capture"
+            options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
           />
           <Stack.Screen
-            name="unlock"
-            options={{ presentation: 'transparentModal', animation: 'fade' }}
+            name="review"
+            options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
           />
-          <Stack.Screen name="recover/[type]" options={{ animation: 'fade' }} />
+          <Stack.Screen
+            name="task/[id]"
+            options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
+          />
         </Stack>
-        </ToastProvider>
-        </DemoProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

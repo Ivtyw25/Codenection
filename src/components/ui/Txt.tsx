@@ -1,32 +1,36 @@
-/**
- * Typography component. Every piece of text in the app goes through this so the
- * type scale in `pip-design-spec.md` §1.2 is the only way to size text.
- */
-
-import { Text, type TextProps, type StyleProp, type TextStyle } from 'react-native';
-
-import { colors, type as typeScale, type TypeName } from '@/theme';
+import React from 'react';
+import { Text, type TextProps } from 'react-native';
+import { useScheme, type, TypeName } from '@/theme';
 
 export interface TxtProps extends TextProps {
-  /** Token from the type scale. Defaults to Body-MD. */
   variant?: TypeName;
-  /** Any colour token. Defaults to `--color-text`. */
   color?: string;
   center?: boolean;
-  style?: StyleProp<TextStyle>;
+  muted?: boolean;
 }
 
 export function Txt({
-  variant = 'bodyMd',
-  color = colors.text,
+  variant = 'body',
+  color,
   center,
+  muted,
   style,
-  ...rest
+  ...props
 }: TxtProps) {
+  const scheme = useScheme();
+  
+  const textColor = color ?? (muted ? scheme.textMuted : scheme.text);
+  const textStyle = type[variant];
+
   return (
     <Text
-      {...rest}
-      style={[typeScale[variant], { color }, center && { textAlign: 'center' }, style]}
+      style={[
+        textStyle,
+        { color: textColor },
+        center && { textAlign: 'center' },
+        style,
+      ]}
+      {...props}
     />
   );
 }
