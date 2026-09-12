@@ -11,7 +11,7 @@
  * This is a fixture, not a mock: it is the initial value of real state, and
  * every field of it is mutable from the UI.
  */
-import type { AppData, DayRecord, ShopItem, Task } from '@/types';
+import type { AppData, DayRecord, ShopItem, Task, Teammate } from '@/types';
 import { isoDate, startOfDay } from './format';
 
 /** `at(0, 16, 0)` → today at 16:00. `at(-1, …)` → yesterday. */
@@ -45,97 +45,16 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'galaxy', name: 'Galaxy Skin', price: 300, category: 'skins', image: SKIN_IMAGES.galaxy },
 ];
 
-const TASKS: Task[] = [
-  {
-    id: 't1',
-    title: 'Submit venue booking request for Main Hall workshop',
-    status: 'open',
-    context: '@club',
-    tag: '#Leadership',
-    dueAt: at(0, 16),
-    estimateMin: 15,
-    load: 'low',
-    icon: 'CalendarDays',
-    createdAt: at(-2, 9),
-    completedAt: null,
-    subtasks: [
-      { id: 't1s1', title: 'Confirm target dates with club executive committee', done: false },
-      { id: 't1s2', title: 'Complete and submit Student Affairs venue form', done: false },
-    ],
-    notes:
-      'Bookings require 2 weeks notice minimum. Sound technician needed for Main Hall acoustics.',
-    resources: [
-      { id: 'r1', name: 'Venue_Booking_Handbook_2026.pdf', kind: 'PDF', size: '1.2 MB' },
-      { id: 'r2', name: 'GDSC_Club_Registration_Info.gdoc', kind: 'Doc', size: '480 KB', external: true },
-    ],
-    pipNote:
-      'Quick 15m errand. Completing this before 4:00 PM will free up cognitive space for evening study.',
-  },
-  {
-    id: 't2',
-    title: 'Fix Docker build issue with backend image',
-    status: 'open',
-    context: '@academics',
-    tag: '#Academics',
-    dueAt: at(0, 20),
-    estimateMin: 60,
-    load: 'medium',
-    icon: 'Code',
-    createdAt: at(-1, 14),
-    completedAt: null,
-    subtasks: [
-      { id: 't2s1', title: 'Inspect failed layer log in the local build cache', done: false },
-      { id: 't2s2', title: 'Pin base image digest and re-run CI', done: false },
-    ],
-    notes: 'Build fails at the dependency install layer after the base image bumped.',
-    resources: [],
-  },
-  {
-    id: 't3',
-    title: 'Update resume with latest full-stack internship work',
-    status: 'open',
-    context: '@internship',
-    tag: '#Internship',
-    dueAt: at(1, 18),
-    estimateMin: 45,
-    load: 'medium',
-    icon: 'FileText',
-    createdAt: at(-3, 11),
-    completedAt: null,
-    subtasks: [{ id: 't3s1', title: 'Draft bullet points for the payments project', done: false }],
-    resources: [],
-  },
-  {
-    id: 't4',
-    title: 'Return library books before the renewal window closes',
-    status: 'open',
-    context: '@errands',
-    dueAt: at(-1, 17),
-    estimateMin: 20,
-    load: 'low',
-    icon: 'BookOpen',
-    createdAt: at(-6, 10),
-    completedAt: null,
-    subtasks: [],
-    resources: [],
-    pipNote: 'This one slipped past its date. Twenty minutes clears it and the guilt with it.',
-  },
-  {
-    id: 't5',
-    title: 'Read CS420 lecture notes on distributed consensus',
-    status: 'done',
-    context: '@academics',
-    tag: '#Academics',
-    dueAt: at(0, 9),
-    estimateMin: 30,
-    load: 'low',
-    icon: 'BookOpen',
-    createdAt: at(-1, 20),
-    completedAt: at(0, 8, 40),
-    subtasks: [{ id: 't5s1', title: 'Skim the Raft paper summary', done: true }],
-    resources: [],
-  },
-];
+/**
+ * No seeded tasks, deliberately.
+ *
+ * The Manifest starts empty because work in this app is supposed to ARRIVE —
+ * captured, then processed, then committed. Shipping a pre-populated task list
+ * would hand a first-time user five things they never wrote down, and quietly
+ * skip the one flow the product is actually about. Everything below in `inbox`
+ * is what a new user has instead.
+ */
+const TASKS: Task[] = [];
 
 /**
  * Six closed days behind today. Four consecutive balanced days sit at the end,
@@ -154,6 +73,83 @@ const HISTORY: DayRecord[] = [
   d.setDate(d.getDate() + offset);
   return { date: isoDate(d), ...rest };
 });
+
+/** Seven closed days ending yesterday, oldest first — a teammate's week. */
+function week(rows: Omit<DayRecord, 'date'>[]): DayRecord[] {
+  return rows.map((row, i) => {
+    const d = startOfDay(new Date());
+    d.setDate(d.getDate() - (rows.length - i));
+    return { date: isoDate(d), ...row };
+  });
+}
+
+/**
+ * The people a step can be handed to.
+ *
+ * Spread across the state range on purpose. Delegation is only a real decision
+ * if some answers are visibly worse than others: Jia Wen is depleted and Nadia
+ * is fraying, so "who takes this" has an obviously kind answer and an obviously
+ * unkind one. Shanmugam hasn't opted into sharing and therefore shows nothing
+ * at all — the screen has to stay usable without that signal.
+ */
+const TEAMMATES: Teammate[] = [
+  {
+    id: 'tm1',
+    name: 'Arif',
+    initials: 'AR',
+    sharesState: true,
+    state: 'balanced',
+    week: week([
+      { pressure: 38, vitality: 78, tasksCompleted: 2, state: 'balanced' },
+      { pressure: 41, vitality: 75, tasksCompleted: 3, state: 'balanced' },
+      { pressure: 35, vitality: 80, tasksCompleted: 2, state: 'balanced' },
+      { pressure: 44, vitality: 74, tasksCompleted: 1, state: 'balanced' },
+      { pressure: 39, vitality: 79, tasksCompleted: 3, state: 'balanced' },
+      { pressure: 33, vitality: 82, tasksCompleted: 2, state: 'balanced' },
+      { pressure: 36, vitality: 80, tasksCompleted: 3, state: 'balanced' },
+    ]),
+  },
+  {
+    id: 'tm2',
+    name: 'Nadia',
+    initials: 'NL',
+    sharesState: true,
+    state: 'strained',
+    week: week([
+      { pressure: 45, vitality: 71, tasksCompleted: 2, state: 'balanced' },
+      { pressure: 52, vitality: 66, tasksCompleted: 2, state: 'strained' },
+      { pressure: 58, vitality: 62, tasksCompleted: 1, state: 'strained' },
+      { pressure: 61, vitality: 59, tasksCompleted: 1, state: 'strained' },
+      { pressure: 57, vitality: 63, tasksCompleted: 2, state: 'strained' },
+      { pressure: 63, vitality: 58, tasksCompleted: 0, state: 'strained' },
+      { pressure: 60, vitality: 60, tasksCompleted: 1, state: 'strained' },
+    ]),
+  },
+  {
+    id: 'tm3',
+    name: 'Jia Wen',
+    initials: 'JW',
+    sharesState: true,
+    state: 'depleted',
+    week: week([
+      { pressure: 64, vitality: 55, tasksCompleted: 1, state: 'wilting' },
+      { pressure: 71, vitality: 48, tasksCompleted: 1, state: 'wilting' },
+      { pressure: 78, vitality: 42, tasksCompleted: 0, state: 'depleted' },
+      { pressure: 82, vitality: 38, tasksCompleted: 0, state: 'depleted' },
+      { pressure: 79, vitality: 40, tasksCompleted: 1, state: 'depleted' },
+      { pressure: 85, vitality: 35, tasksCompleted: 0, state: 'depleted' },
+      { pressure: 83, vitality: 37, tasksCompleted: 0, state: 'depleted' },
+    ]),
+  },
+  {
+    id: 'tm4',
+    name: 'Shanmugam',
+    initials: 'SH',
+    sharesState: false,
+    state: null,
+    week: [],
+  },
+];
 
 /**
  * A fresh copy of the seed world.
@@ -174,30 +170,86 @@ export function seedData(): AppData {
       streakGoal: 7,
     },
     tasks: TASKS.map((t) => ({ ...t, subtasks: t.subtasks.map((s) => ({ ...s })) })),
+    teammates: TEAMMATES.map((m) => ({ ...m, week: m.week.map((d) => ({ ...d })) })),
     /**
-     * Three unprocessed captures, so the Inbox is demonstrable on first run.
-     * The badminton one deliberately contains two clauses — triage splits it
-     * into two proposals, which is the behaviour worth seeing.
+     * Four unprocessed captures \u2014 the app's entire starting content.
+     *
+     * Written as things a student would actually type, which is why three of
+     * them narrate their own ordering ("once I read through it, I'll\u2026",
+     * "nothing else can move forward until\u2026"). That ordering is what the
+     * breakdowns in `src/data/breakdowns.ts` turn into real dependencies.
+     *
+     * The fourth is deliberately trivial: not every thought deserves a
+     * breakdown, and padding a two-minute errand with invented steps is how a
+     * planner starts feeling like homework.
      */
     inbox: [
       {
         id: 'cap1',
-        text: 'Ask the TA whether the Raft problem set covers leader election',
+        text:
+          'I really want to focus on AI engineering for my FYP, but before pitching anything, ' +
+          'I need to thoroughly review the project guidelines so my scope fits the faculty ' +
+          "requirements. Once I read through it, I'll identify supervisors doing research in " +
+          'applied AI, draft a quick proposal outline with a couple of strong ideas, and email ' +
+          'them to set up a consultation.',
         kind: 'text',
-        createdAt: at(0, 8, 40),
+        // A document attachment renders from its metadata alone, so the seed can
+        // demonstrate the tray without shipping a real file to point `uri` at.
+        attachments: [
+          {
+            id: 'att1',
+            name: 'fyp_project_guidelines.pdf',
+            kind: 'document',
+            uri: 'file:///seed/fyp_project_guidelines.pdf',
+            sizeBytes: 412_000,
+            mimeType: 'application/pdf',
+          },
+        ],
+        createdAt: at(0, 9, 20),
       },
       {
         id: 'cap2',
-        text: 'Book the badminton court for Saturday. Text the group to confirm',
+        text:
+          'I need to check my eligibility against the CGPA cutoffs and prerequisite rules in ' +
+          'this briefing document for next semester\u2019s exchange. I also need to draft an email ' +
+          'to the mobility office to ask if there are any university scholarships or travel ' +
+          'grants available so I know what my out-of-pocket costs look like before committing.',
         kind: 'text',
-        createdAt: at(0, 6, 15),
+        attachments: [
+          {
+            id: 'att2',
+            name: 'exchange_program_guideline.pdf',
+            kind: 'document',
+            uri: 'file:///seed/exchange_program_guideline.pdf',
+            sizeBytes: 287_000,
+            mimeType: 'application/pdf',
+          },
+        ],
+        createdAt: at(0, 8, 5),
       },
       {
         id: 'cap3',
-        text: "Pick up the parcel from the porter's lodge before it goes back",
-        kind: 'voice',
-        durationSec: 11,
-        createdAt: at(-1, 19),
+        text:
+          'Our team finalized the event concept, but none of the paperwork is handled yet. ' +
+          'I need to write the event proposal, submit it for formal faculty approval, and book ' +
+          'the venue before other clubs take the slots. Nothing else can move forward until the ' +
+          'venue and permits are secured.',
+        kind: 'text',
+        attachments: [],
+        createdAt: at(-1, 21, 10),
+      },
+      {
+        id: 'cap4',
+        text:
+          'Need to purchase these items on Shopee before stock runs out or shipping gets delayed:\n' +
+          'https://shopee.com.my/product/1829304/mechanical-keyboard-switches\n' +
+          'https://shopee.com.my/product/4471902/laptop-stand-aluminium\n' +
+          'https://shopee.com.my/product/9930211/usb-c-hub-7-in-1\n' +
+          'https://shopee.com.my/product/2245780/a4-refill-pad-5pack\n' +
+          'https://shopee.com.my/product/6610934/desk-lamp-warm-led',
+        kind: 'text',
+        attachments: [],
+        createdAt: at(-1, 22, 35),
       },
     ],
     vitals: [
@@ -207,11 +259,13 @@ export function seedData(): AppData {
     history: HISTORY,
     shop: SHOP_ITEMS,
     notifications: [
+      // Copy here must not name tasks: the Manifest starts empty, and a nudge
+      // about overdue library books with nothing on the list reads as a bug.
       {
         id: 'n1',
         kind: 'nudge',
-        title: 'One thing is overdue',
-        body: 'The library books slipped past yesterday. Twenty minutes clears it.',
+        title: 'Four things are waiting',
+        body: 'Your inbox has been filling up. Processing it takes about a minute.',
         createdAt: at(0, 8),
         read: false,
       },
@@ -219,7 +273,7 @@ export function seedData(): AppData {
         id: 'n2',
         kind: 'reward',
         title: '+40 Sparks',
-        body: 'Four tasks closed yesterday — your best day this week.',
+        body: 'A balanced week so far — Pip has been steady four days running.',
         createdAt: at(-1, 21),
         read: false,
       },

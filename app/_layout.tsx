@@ -107,6 +107,12 @@ function Routes() {
         name="task/[id]"
         options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
       />
+      {/*
+        Delegation is a full screen, not a sheet: it is opened FROM the review
+        sheet, and stacking a second sheet on the first leaves the user unsure
+        which one "back" dismisses.
+      */}
+      <Stack.Screen name="delegate" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );
 }

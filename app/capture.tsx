@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -9,16 +10,22 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Keyboard, Mic, X } from 'lucide-react-native';
+import { FileUp, Images, Music, RotateCcw, X } from 'lucide-react-native';
 
-import { VoiceRecorder } from '@/components/app';
-import { Button, Chip, IconButton, Txt } from '@/components/ui';
+import { AttachmentTray, VoiceRecorder } from '@/components/app';
+import { Button, IconButton, SegmentedTabs, Txt } from '@/components/ui';
 import { MIN_CAPTURE } from '@/data/api';
+import { useAttachments } from '@/data/attachments';
 import { useApp } from '@/store/AppStore';
-import { space, type, useScheme } from '@/theme';
+import { space, status, type, useScheme } from '@/theme';
 import type { CaptureKind } from '@/types';
 
 const MAX_CAPTURE = 600;
+
+const TABS: { value: CaptureKind; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'voice', label: 'Voice' },
+];
 
 /**
  * Capture — the brain-dump canvas.
@@ -29,6 +36,11 @@ const MAX_CAPTURE = 600;
  * and in bulk from `/inbox`, because deciding what a thought *is* costs more
  * attention than writing it down and the two should not be charged together.
  *
+ * Two tabs, one output. Text and Voice are different ways of producing the same
+ * primary entry — the transcript lands in the same field the Text tab edits —
+ * and attachments are available from both, because which mode you happened to
+ * use has no bearing on whether a photo of the whiteboard belongs with it.
+ *
  * Full-screen rather than a sheet: it covers the tab bar and whatever you were
  * doing, which is the whole point of "distraction-free".
  */
@@ -38,42 +50,84 @@ export default function CaptureScreen() {
   const insets = useSafeAreaInsets();
 
   const params = useLocalSearchParams<{ draft?: string; from?: string }>();
-  const { capture, discardCaptures, toast } = useApp();
+  const { data, capture, discardCaptures, toast } = useApp();
 
-  const [kind, setKind] = useState<CaptureKind>('text');
+  /*
+   * Re-opening a note from the Inbox has to restore what was attached to it.
+   * Seeding the tray from the existing note is the difference between "edit"
+   * and "silently drop the files and keep the words".
+   */
+  const editingNote = params.from ? data.inbox.find((n) => n.id === params.from) : undefined;
+
+  const [tab, setTab] = useState<CaptureKind>(editingNote?.kind ?? 'text');
   const [text, setText] = useState(params.draft ?? '');
   /** Set once a voice pass produces a transcript, so the note records its length. */
-  const [durationSec, setDurationSec] = useState<number | undefined>(undefined);
+  const [durationSec, setDurationSec] = useState<number | undefined>(editingNote?.durationSec);
+  const [saving, setSaving] = useState(false);
 
+  const files = useAttachments(editingNote?.attachments);
   const inputRef = useRef<TextInput>(null);
 
   const trimmed = text.trim();
   const tooShort = trimmed.length < MIN_CAPTURE;
   const editing = !!params.from;
 
+  /**
+   * Attachments are *supporting* context, so they do not substitute for the
+   * entry itself — a bundle of files with nothing said about them is a folder,
+   * not a thought. The primary entry is what gates the save.
+   */
+  const canSave = !tooShort && !saving;
+
   const save = useCallback(() => {
-    if (tooShort) return;
-    capture(trimmed, kind, durationSec);
-    // Re-saving an edited note replaces it rather than duplicating it.
+    if (!canSave) return;
+    setSaving(true);
+
+    // The entry and every attachment go in as ONE item. Nothing is parsed,
+    // categorised, or turned into a task here.
+    capture(trimmed, tab, { durationSec, attachments: files.attachments });
     if (params.from) discardCaptures([params.from]);
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    toast(editing ? 'Capture updated' : 'Saved to your inbox', 'success');
+    const count = files.attachments.length;
+    toast(
+      editing
+        ? 'Capture updated'
+        : count > 0
+          ? `Saved to your inbox with ${count} ${count === 1 ? 'file' : 'files'}`
+          : 'Saved to your inbox',
+      'success',
+    );
+    setSaving(false);
     router.back();
-  }, [tooShort, trimmed, kind, durationSec, capture, params.from, discardCaptures, editing, toast, router]);
+  }, [
+    canSave,
+    trimmed,
+    tab,
+    durationSec,
+    files.attachments,
+    capture,
+    params.from,
+    discardCaptures,
+    editing,
+    toast,
+    router,
+  ]);
 
   const onTranscript = useCallback((transcript: string, seconds: number) => {
     setText((current) => (current ? `${current}. ${transcript}` : transcript));
     setDurationSec(seconds);
-    // A transcript is a draft, not a result — hand it straight to the editor.
-    setKind('voice');
   }, []);
+
+  /** Voice has produced something; show the transcript rather than the recorder. */
+  const hasTranscript = tab === 'voice' && trimmed.length > 0;
 
   return (
     <KeyboardAvoidingView
       style={[styles.root, { backgroundColor: scheme.ground }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* ── Chrome: an exit and nothing else ──────────────────────────────── */}
+      {/* ── Chrome: an exit and the two tabs ──────────────────────────────── */}
       <View style={[styles.head, { paddingTop: insets.top + space[2] }]}>
         <IconButton
           icon={<X size={20} color={scheme.textSecondary} />}
@@ -81,31 +135,44 @@ export default function CaptureScreen() {
           size={38}
           onPress={() => router.back()}
         />
-
-        <View style={styles.modes}>
-          <Chip
-            label="Type"
-            icon={<Keyboard size={12} color={kind === 'text' ? scheme.onPrimary : scheme.textSecondary} />}
-            selected={kind === 'text'}
-            onPress={() => {
-              setKind('text');
-              inputRef.current?.focus();
+        <View style={styles.tabs}>
+          <SegmentedTabs
+            options={TABS}
+            value={tab}
+            onChange={(next) => {
+              setTab(next);
+              if (next === 'text') inputRef.current?.focus();
             }}
-          />
-          <Chip
-            label="Voice"
-            icon={<Mic size={12} color={kind === 'voice' ? scheme.onPrimary : scheme.textSecondary} />}
-            selected={kind === 'voice'}
-            onPress={() => setKind('voice')}
+            scrollable={false}
           />
         </View>
+        {/* Balances the close button so the tabs sit centred. */}
+        <View style={styles.headSpacer} />
       </View>
 
       {/* ── Canvas ────────────────────────────────────────────────────────── */}
-      {kind === 'voice' && trimmed.length === 0 ? (
+      {tab === 'voice' && !hasTranscript ? (
         <VoiceRecorder onTranscript={onTranscript} />
       ) : (
         <View style={styles.canvas}>
+          {hasTranscript ? (
+            <View style={styles.transcriptBar}>
+              <Txt variant="caption" color={status.success.fg} style={{ flex: 1 }}>
+                Transcribed — edit it however you like before saving.
+              </Txt>
+              <Button
+                label="Record again"
+                variant="ghost"
+                size="sm"
+                icon={<RotateCcw size={13} color={scheme.primary} />}
+                onPress={() => {
+                  setText('');
+                  setDurationSec(undefined);
+                }}
+              />
+            </View>
+          ) : null}
+
           <TextInput
             ref={inputRef}
             value={text}
@@ -113,7 +180,7 @@ export default function CaptureScreen() {
             placeholder="What's on your mind?"
             placeholderTextColor={scheme.textDisabled}
             multiline
-            autoFocus
+            autoFocus={tab === 'text'}
             maxLength={MAX_CAPTURE}
             textAlignVertical="top"
             accessibilityLabel="Capture note"
@@ -122,13 +189,67 @@ export default function CaptureScreen() {
         </View>
       )}
 
+      {/* ── Attachments — available from both tabs ────────────────────────── */}
+      <ScrollView
+        style={styles.attachArea}
+        contentContainerStyle={styles.attachContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.attachRow}>
+          <Button
+            label="Files"
+            variant="secondary"
+            size="sm"
+            icon={<FileUp size={14} color={scheme.text} />}
+            loading={files.picking}
+            onPress={files.addDocuments}
+          />
+          <Button
+            label="Photos"
+            variant="secondary"
+            size="sm"
+            icon={<Images size={14} color={scheme.text} />}
+            loading={files.picking}
+            onPress={files.addMedia}
+          />
+          <Button
+            label="Audio"
+            variant="secondary"
+            size="sm"
+            icon={<Music size={14} color={scheme.text} />}
+            loading={files.picking}
+            onPress={files.addAudio}
+          />
+        </View>
+
+        {files.error ? (
+          <Txt variant="caption" color={status.danger.fg} style={{ marginTop: space[2] }}>
+            {files.error}
+          </Txt>
+        ) : null}
+
+        <View style={{ marginTop: space[3] }}>
+          <AttachmentTray
+            attachments={files.attachments}
+            onRemove={files.remove}
+            disabled={saving}
+          />
+        </View>
+      </ScrollView>
+
       {/* ── Footer ────────────────────────────────────────────────────────── */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + space[4], borderTopColor: scheme.border }]}>
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: insets.bottom + space[4], borderTopColor: scheme.border },
+        ]}
+      >
         <View style={styles.footerMeta}>
           <Txt variant="caption" muted style={{ flex: 1 }}>
             {tooShort
               ? 'Whatever comes out. Sort it later.'
-              : 'Goes straight to your inbox — nothing is categorised yet.'}
+              : 'Saved as one raw item — nothing is categorised yet.'}
           </Txt>
           {text.length > 0 ? (
             <Txt variant="caption" muted>
@@ -140,8 +261,13 @@ export default function CaptureScreen() {
         <Button
           label={editing ? 'Save changes' : 'Save to inbox'}
           fullWidth
+          loading={saving}
           disabled={tooShort}
-          disabledReason="Write a few more words first"
+          disabledReason={
+            tab === 'voice'
+              ? 'Record something, or switch to Text and type it'
+              : 'Write a few more words first'
+          }
           onPress={save}
         />
       </View>
@@ -154,14 +280,24 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: space[4],
     paddingBottom: space[3],
   },
-  modes: { flexDirection: 'row', gap: space[2] },
+  tabs: { flex: 1, alignItems: 'center' },
+  headSpacer: { width: 38 },
 
   canvas: { flex: 1, paddingHorizontal: space[5] },
+  transcriptBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    paddingBottom: space[2],
+  },
   input: { flex: 1, paddingTop: space[2], lineHeight: 30 },
+
+  attachArea: { maxHeight: 260, flexGrow: 0 },
+  attachContent: { paddingHorizontal: space[4], paddingBottom: space[3] },
+  attachRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
 
   footer: {
     paddingHorizontal: space[4],

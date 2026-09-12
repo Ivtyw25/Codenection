@@ -9,13 +9,16 @@ import {
   ExternalLink,
   FileText,
   Leaf,
+  Lock,
   MapPin,
   Plus,
   Trash2,
+  UserPlus,
   X,
 } from 'lucide-react-native';
 
 import {
+  Avatar,
   Button,
   Checkbox,
   Chip,
@@ -29,11 +32,11 @@ import {
   Txt,
 } from '@/components/ui';
 import { formatDue, formatEstimate, isOverdue } from '@/data/format';
-import { loadPercent, progress } from '@/data/derive';
+import { blockers, loadPercent, nextAction, progress } from '@/data/derive';
 import { useApp } from '@/store/AppStore';
-import { useNow, useTask } from '@/store/selectors';
+import { useNow, useTask, useTeammates } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
-import type { Resource, SubTask } from '@/types';
+import type { Resource, SubTask, Teammate } from '@/types';
 
 /**
  * Task Detail — SCR-13. Opens as a bottom sheet over the Manifest.
@@ -50,24 +53,39 @@ export default function TaskDetailScreen() {
 
   const { toggleTask, toggleSubtask, addSubtask, patchTask, removeTask, toast } = useApp();
   const task = useTask(id);
+  const teammates = useTeammates();
+  const next = task ? nextAction(task) : null;
 
   const [adding, setAdding] = useState(false);
   const [newStep, setNewStep] = useState('');
+  const [newStepMins, setNewStepMins] = useState('');
+  /** Steps the one being added should wait on. Ids only ever point backwards. */
+  const [newStepDeps, setNewStepDeps] = useState<string[]>([]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const close = useCallback(() => router.back(), [router]);
 
+  const resetStepDraft = useCallback(() => {
+    setNewStep('');
+    setNewStepMins('');
+    setNewStepDeps([]);
+    setAdding(false);
+  }, []);
+
   const submitStep = useCallback(() => {
     const title = newStep.trim();
     if (!task || title.length < 2) return;
-    addSubtask(task.id, title);
-    setNewStep('');
-    setAdding(false);
+    const parsed = parseInt(newStepMins, 10);
+    addSubtask(task.id, title, {
+      estimateMin: Number.isFinite(parsed) && parsed > 0 ? parsed : 15,
+      dependsOn: newStepDeps,
+    });
+    resetStepDraft();
     Haptics.selectionAsync().catch(() => {});
     toast('Step added', 'success');
-  }, [newStep, task, addSubtask, toast]);
+  }, [newStep, newStepMins, newStepDeps, task, addSubtask, resetStepDraft, toast]);
 
   if (!task) {
     return (
@@ -207,12 +225,22 @@ export default function TaskDetailScreen() {
                 key={sub.id}
                 sub={sub}
                 first={i === 0}
-                // Exactly one row carries the pill: the first thing still open.
-                isNext={!sub.done && task.subtasks.findIndex((s) => !s.done) === i}
+                // Exactly one row carries the pill, and it is the first step
+                // that is actually startable — not merely the first unticked
+                // one, which could be locked behind unfinished work.
+                isNext={next?.id === sub.id}
+                blockedBy={blockers(task, sub)}
+                assignee={teammates.find((m) => m.id === sub.delegatedTo) ?? null}
                 onToggle={() => {
                   Haptics.selectionAsync().catch(() => {});
                   toggleSubtask(task.id, sub.id);
                 }}
+                onDelegate={() =>
+                  router.push({
+                    pathname: '/delegate',
+                    params: { taskId: task.id, subId: sub.id },
+                  })
+                }
               />
             ))}
           </View>
@@ -223,36 +251,76 @@ export default function TaskDetailScreen() {
         ) : null}
 
         {adding ? (
-          <View style={styles.addRow}>
-            <View style={{ flex: 1 }}>
-              <Input
-                value={newStep}
-                onChangeText={setNewStep}
-                placeholder="What is the next concrete step?"
-                autoFocus
-                returnKeyType="done"
-                maxLength={120}
-                onSubmitEditing={submitStep}
-                accessibilityLabel="New sub-task"
-                error={newStep.length > 0 && newStep.trim().length < 2 ? 'A little more than that.' : undefined}
+          <View style={{ gap: space[2] }}>
+            <View style={styles.addRow}>
+              <View style={{ flex: 1 }}>
+                <Input
+                  value={newStep}
+                  onChangeText={setNewStep}
+                  placeholder="What is the next concrete step?"
+                  autoFocus
+                  returnKeyType="done"
+                  maxLength={120}
+                  onSubmitEditing={submitStep}
+                  accessibilityLabel="New sub-task"
+                  error={newStep.length > 0 && newStep.trim().length < 2 ? 'A little more than that.' : undefined}
+                />
+              </View>
+              <View style={{ width: 78 }}>
+                <Input
+                  value={newStepMins}
+                  onChangeText={setNewStepMins}
+                  placeholder="15"
+                  keyboardType="number-pad"
+                  maxLength={3}
+                  accessibilityLabel="Minutes this step will take"
+                />
+              </View>
+              <IconButton
+                icon={<Check size={16} color={scheme.onPrimary} />}
+                accessibilityLabel="Save step"
+                size={40}
+                disabled={newStep.trim().length < 2}
+                onPress={submitStep}
+              />
+              <IconButton
+                icon={<X size={16} color={scheme.textMuted} />}
+                accessibilityLabel="Cancel"
+                size={40}
+                onPress={resetStepDraft}
               />
             </View>
-            <IconButton
-              icon={<Check size={16} color={scheme.onPrimary} />}
-              accessibilityLabel="Save step"
-              size={40}
-              disabled={newStep.trim().length < 2}
-              onPress={submitStep}
-            />
-            <IconButton
-              icon={<X size={16} color={scheme.textMuted} />}
-              accessibilityLabel="Cancel"
-              size={40}
-              onPress={() => {
-                setAdding(false);
-                setNewStep('');
-              }}
-            />
+
+            {/*
+              Only steps that already exist are offered, which is also what
+              keeps the graph acyclic: a new edge can only point backwards.
+            */}
+            {total > 0 ? (
+              <View style={{ gap: space[1] }}>
+                <Txt variant="caption" muted>
+                  Waits on (optional)
+                </Txt>
+                <View style={styles.depPicker}>
+                  {task.subtasks.map((s) => {
+                    const picked = newStepDeps.includes(s.id);
+                    return (
+                      <Chip
+                        key={s.id}
+                        label={s.title}
+                        size="sm"
+                        tone={picked ? 'info' : 'neutral'}
+                        variant={picked ? 'filled' : 'outline'}
+                        onPress={() =>
+                          setNewStepDeps((prev) =>
+                            picked ? prev.filter((d) => d !== s.id) : [...prev, s.id],
+                          )
+                        }
+                      />
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -336,33 +404,103 @@ export default function TaskDetailScreen() {
   );
 }
 
+/**
+ * One step.
+ *
+ * Three states beyond done/not-done: LOCKED (waiting on unfinished work — no
+ * checkbox at all, because offering a control that refuses the tap is worse
+ * than showing why it isn't there), DELEGATED (someone else's, still yours to
+ * see), and startable.
+ */
 function SubTaskRow({
   sub,
   first,
   isNext,
+  blockedBy,
+  assignee,
   onToggle,
+  onDelegate,
 }: {
   sub: SubTask;
   first: boolean;
   isNext: boolean;
+  blockedBy: SubTask[];
+  assignee: Teammate | null;
   onToggle: () => void;
+  onDelegate: () => void;
 }) {
   const scheme = useScheme();
+  const locked = blockedBy.length > 0 && !sub.done;
+  const dimmed = locked || sub.done;
 
   return (
     <View
       style={[styles.subRow, !first && { borderTopWidth: 1, borderTopColor: scheme.border }]}
     >
-      <Checkbox checked={sub.done} onToggle={onToggle} accessibilityLabel={sub.title} />
-      <Txt
-        variant="bodySm"
-        style={[{ flex: 1 }, sub.done && styles.strike]}
-        color={sub.done ? scheme.textMuted : undefined}
-        numberOfLines={2}
-      >
-        {sub.title}
-      </Txt>
+      {locked ? (
+        <View
+          style={styles.lockSlot}
+          accessible
+          accessibilityRole="image"
+          accessibilityLabel={`Locked. Waiting on ${blockedBy.map((b) => b.title).join(' and ')}.`}
+        >
+          <Lock size={15} color={scheme.textDisabled} />
+        </View>
+      ) : (
+        <Checkbox checked={sub.done} onToggle={onToggle} accessibilityLabel={sub.title} />
+      )}
+
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt
+          variant="bodySm"
+          style={sub.done && styles.strike}
+          color={dimmed ? scheme.textMuted : undefined}
+          numberOfLines={2}
+        >
+          {sub.title}
+        </Txt>
+
+        <View style={styles.subMeta}>
+          <Txt variant="caption" muted>
+            {formatEstimate(sub.estimateMin)}
+          </Txt>
+
+          {locked ? (
+            <Txt variant="caption" color={scheme.textDisabled} numberOfLines={1} style={{ flex: 1 }}>
+              · Waiting on {blockedBy.map((b) => b.title).join(' + ')}
+            </Txt>
+          ) : null}
+
+          {assignee ? (
+            <>
+              <Txt variant="caption" muted>
+                ·
+              </Txt>
+              <Avatar initials={assignee.initials} size={16} />
+              <Txt variant="caption" muted numberOfLines={1}>
+                {assignee.name}
+              </Txt>
+            </>
+          ) : null}
+        </View>
+      </View>
+
       {isNext ? <Chip label="Next Action" tone="success" variant="filled" size="sm" /> : null}
+
+      {!sub.done && !locked ? (
+        <Interactive
+          accessibilityRole="button"
+          accessibilityLabel={
+            assignee ? `Reassign ${sub.title}` : `Delegate ${sub.title} to someone`
+          }
+          onPress={onDelegate}
+          radius="pill"
+          hitSlop={8}
+          style={styles.delegateBtn}
+        >
+          <UserPlus size={14} color={scheme.primary} />
+        </Interactive>
+      ) : null}
     </View>
   );
 }
@@ -418,6 +556,11 @@ const styles = StyleSheet.create({
   sectionTitle: { marginTop: space[6], marginBottom: space[2.5] },
   addStep: { flexDirection: 'row', alignItems: 'center', gap: space[1], paddingVertical: space[1] },
   addRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], marginTop: space[2] },
+  depPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1] },
+  subMeta: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  /** Same footprint as the Checkbox it replaces, so locked rows don't reflow. */
+  lockSlot: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  delegateBtn: { padding: space[1] },
 
   subBox: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
   subRow: {

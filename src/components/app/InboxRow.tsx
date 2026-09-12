@@ -1,10 +1,10 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Mic, Pencil } from 'lucide-react-native';
+import { Mic, Paperclip, Pencil } from 'lucide-react-native';
 
 import { Checkbox, Chip, Interactive, Txt } from '@/components/ui';
 import { formatRelative } from '@/data/format';
-import { radius, space, useScheme } from '@/theme';
+import { radius, space, status, useScheme } from '@/theme';
 import type { CaptureNote } from '@/types';
 
 export interface InboxRowProps {
@@ -69,6 +69,21 @@ export function InboxRow({ note, selected, onToggleSelect, onOpen, now = new Dat
               icon={<Mic size={11} color={scheme.textSecondary} />}
             />
           ) : null}
+
+          {/*
+            Count only. The tray on the capture screen is where files are
+            inspected and managed; repeating that here would make a queue row
+            into a file browser.
+          */}
+          {note.attachments.length > 0 ? (
+            <Chip
+              label={String(note.attachments.length)}
+              size="sm"
+              tone="info"
+              icon={<Paperclip size={11} color={status.info.solid} />}
+            />
+          ) : null}
+
           <Txt variant="caption" muted>
             {formatRelative(note.createdAt, now)}
           </Txt>

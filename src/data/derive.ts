@@ -13,6 +13,7 @@ import type {
   DayRecord,
   PipState,
   PipStateName,
+  SubTask,
   Task,
   TaskQuery,
   Vital,
@@ -72,11 +73,35 @@ export function completedOn(tasks: Task[], day: Date): Task[] {
 export function derivePressure(tasks: Task[], now: Date = new Date()): number {
   let total = 0;
   for (const task of openTasks(tasks)) {
-    const done = task.subtasks.filter((s) => s.done).length;
-    const remaining = task.subtasks.length === 0 ? 1 : 1 - done / task.subtasks.length;
-    total += loadPercent(task) * urgency(task, now) * remaining;
+    total += loadPercent(task) * urgency(task, now) * remainingShare(task);
   }
   return clamp(total);
+}
+
+/**
+ * How much of a task is still the student's to carry, 0–1.
+ *
+ * Weighted by MINUTES, not by step count: a task whose 90-minute step is
+ * outstanding and whose 15-minute one is done is nowhere near half finished,
+ * and counting steps equally would say it was. Delegated steps drop out
+ * entirely — that is what makes handing work off relieve pressure rather than
+ * just relabel it.
+ */
+function remainingShare(task: Task): number {
+  if (task.subtasks.length === 0) return 1;
+  let total = 0;
+  let mine = 0;
+  for (const sub of task.subtasks) {
+    const minutes = Math.max(0, sub.estimateMin);
+    total += minutes;
+    if (!sub.done && !sub.delegatedTo) mine += minutes;
+  }
+  // Zero-minute steps still represent work; fall back to counting them.
+  if (total === 0) {
+    const open = task.subtasks.filter((s) => !s.done && !s.delegatedTo).length;
+    return open / task.subtasks.length;
+  }
+  return mine / total;
 }
 
 /**
@@ -241,9 +266,33 @@ export function contextCounts(tasks: Task[], query: TaskQuery): Record<string, n
   return counts;
 }
 
-/** The sub-task a task is actually blocked on — the "Next Action" row. */
+// ── Sub-task dependencies ───────────────────────────────────────────────────
+
+/** The unfinished steps `sub` is waiting on. Empty means it can be started. */
+export function blockers(task: Task, sub: SubTask): SubTask[] {
+  if (sub.dependsOn.length === 0) return [];
+  return task.subtasks.filter((s) => sub.dependsOn.includes(s.id) && !s.done);
+}
+
+/** A step is blocked while any dependency is still open. */
+export function isBlocked(task: Task, sub: SubTask): boolean {
+  return blockers(task, sub).length > 0;
+}
+
+/**
+ * The step the student can actually start next — the "Next Action" row.
+ *
+ * Not merely the first unticked one: a step whose prerequisites are unfinished
+ * is not startable, and one handed to a teammate is not the student's to do.
+ * Pointing the row at either would be advice the user cannot act on.
+ *
+ * Returns null when everything open is blocked or delegated, which callers
+ * already handle by rendering no row.
+ */
 export function nextAction(task: Task) {
-  return task.subtasks.find((s) => !s.done) ?? null;
+  return (
+    task.subtasks.find((s) => !s.done && !s.delegatedTo && !isBlocked(task, s)) ?? null
+  );
 }
 
 export function progress(task: Task): { done: number; total: number; pct: number } {

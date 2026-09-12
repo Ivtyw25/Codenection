@@ -22,20 +22,26 @@ import React, {
 
 import * as api from '@/data/api';
 import { uid } from '@/data/api';
+import { formatBytes } from '@/data/attachments';
+import { isBlocked } from '@/data/derive';
 import { isoDate } from '@/data/format';
 import type {
   AppData,
   AsyncState,
+  CaptureAttachment,
   CaptureId,
   CaptureKind,
   CaptureReview,
   ProposedTask,
+  Resource,
   Settings,
   ShopItemId,
+  SubTask,
   SubTaskId,
   Task,
   TaskId,
   TaskQuery,
+  TeammateId,
 } from '@/types';
 
 // ── Toast ───────────────────────────────────────────────────────────────────
@@ -95,12 +101,26 @@ type Action =
   | { type: 'boot/fail'; error: string }
   | { type: 'task/toggle'; id: TaskId; at: string }
   | { type: 'task/toggleSub'; id: TaskId; subId: SubTaskId }
-  | { type: 'task/addSub'; id: TaskId; title: string }
+  | {
+      type: 'task/addSub';
+      id: TaskId;
+      title: string;
+      estimateMin: number;
+      dependsOn: SubTaskId[];
+    }
+  | { type: 'task/delegateSub'; id: TaskId; subId: SubTaskId; to: TeammateId | null }
+  | { type: 'review/delegate'; proposalId: string; subId: string; to: TeammateId | null }
   | { type: 'task/patch'; id: TaskId; patch: Partial<Task> }
   | { type: 'task/remove'; id: TaskId }
   | { type: 'task/add'; tasks: Task[] }
   | { type: 'query/set'; patch: Partial<TaskQuery> }
-  | { type: 'inbox/add'; text: string; kind: CaptureKind; durationSec?: number }
+  | {
+      type: 'inbox/add';
+      text: string;
+      kind: CaptureKind;
+      durationSec?: number;
+      attachments: CaptureAttachment[];
+    }
   | { type: 'inbox/removeMany'; ids: CaptureId[] }
   | { type: 'sparks/add'; amount: number }
   | { type: 'shop/pending'; id: string; on: boolean }
@@ -160,9 +180,21 @@ function reducer(state: AppState, action: Action): AppState {
       };
 
     case 'task/toggleSub': {
+      const owner = data.tasks.find((t) => t.id === action.id);
+      const target = owner?.subtasks.find((s) => s.id === action.subId);
+      if (!owner || !target) return state;
+
+      // Ticking something still waiting on unfinished work is refused here as
+      // well as in the UI. The screen already hides the control, but the store
+      // owns the invariant and shouldn't depend on a view to hold it.
+      if (!target.done && isBlocked(owner, target)) return state;
+
       const next = mapTask(data, action.id, (t) => ({
         ...t,
-        subtasks: t.subtasks.map((s) => (s.id === action.subId ? { ...s, done: !s.done } : s)),
+        subtasks: reopenDependents(
+          t.subtasks.map((s) => (s.id === action.subId ? { ...s, done: !s.done } : s)),
+          target.done ? [action.subId] : [],
+        ),
       }));
       // Re-opening a sub-task re-opens its parent: a "done" task with open work
       // under it is the kind of lie that makes a checklist useless.
@@ -181,9 +213,55 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         data: mapTask(data, action.id, (t) => ({
           ...t,
-          subtasks: [...t.subtasks, { id: uid('s'), title: action.title, done: false }],
+          // Appended, and only ever able to depend on steps that already exist
+          // — which is why the graph cannot develop a cycle without a reorder
+          // feature to introduce one.
+          subtasks: [
+            ...t.subtasks,
+            {
+              id: uid('s'),
+              title: action.title,
+              done: false,
+              estimateMin: action.estimateMin,
+              dependsOn: action.dependsOn,
+              delegatedTo: null,
+            },
+          ],
         })),
       };
+
+    case 'task/delegateSub':
+      return {
+        ...state,
+        data: mapTask(data, action.id, (t) => ({
+          ...t,
+          subtasks: t.subtasks.map((s) =>
+            s.id === action.subId ? { ...s, delegatedTo: action.to } : s,
+          ),
+        })),
+      };
+
+    // Delegation happens during triage, before any task exists, so it has to
+    // be recorded against the pending review and carried through the commit.
+    case 'review/delegate': {
+      if (!state.review) return state;
+      return {
+        ...state,
+        review: {
+          ...state.review,
+          proposed: state.review.proposed.map((p) =>
+            p.id !== action.proposalId
+              ? p
+              : {
+                  ...p,
+                  subtasks: p.subtasks.map((s) =>
+                    s.id === action.subId ? { ...s, delegatedTo: action.to } : s,
+                  ),
+                },
+          ),
+        },
+      };
+    }
 
     case 'task/patch':
       return { ...state, data: mapTask(data, action.id, (t) => ({ ...t, ...action.patch })) };
@@ -209,6 +287,7 @@ function reducer(state: AppState, action: Action): AppState {
               text: action.text,
               kind: action.kind,
               durationSec: action.durationSec,
+              attachments: action.attachments,
               createdAt: new Date().toISOString(),
             },
             ...data.inbox,
@@ -287,15 +366,32 @@ export interface AppApi {
 
   toggleTask: (id: TaskId) => void;
   toggleSubtask: (taskId: TaskId, subId: SubTaskId) => void;
-  addSubtask: (taskId: TaskId, title: string) => void;
+  addSubtask: (
+    taskId: TaskId,
+    title: string,
+    options?: { estimateMin?: number; dependsOn?: SubTaskId[] },
+  ) => void;
+  /** Hand a committed step to a teammate, or pass null to take it back. */
+  delegateSubtask: (taskId: TaskId, subId: SubTaskId, to: TeammateId | null) => void;
+  /** The same, for a step that is still only a proposal in the review sheet. */
+  delegateProposedSubtask: (proposalId: string, subId: string, to: TeammateId | null) => void;
   patchTask: (id: TaskId, patch: Partial<Task>) => void;
   removeTask: (id: TaskId) => void;
 
   setQuery: (patch: Partial<TaskQuery>) => void;
 
   setReview: (review: CaptureReview | null) => void;
-  /** The only thing the capture screen does. */
-  capture: (text: string, kind: CaptureKind, durationSec?: number) => void;
+  /**
+   * The only thing the capture screen does.
+   *
+   * The entry and its attachments land as ONE inbox item. Nothing is parsed,
+   * categorised or turned into a task on the way in.
+   */
+  capture: (
+    text: string,
+    kind: CaptureKind,
+    options?: { durationSec?: number; attachments?: CaptureAttachment[] },
+  ) => void;
   discardCaptures: (ids: CaptureId[]) => void;
   /**
    * Commits a triaged batch: creates the accepted tasks, awards Sparks, and
@@ -317,7 +413,47 @@ export interface AppApi {
 const Ctx = createContext<AppApi | null>(null);
 
 /** Converts a reviewed proposal into a real task. */
-function materialise(p: ProposedTask): Task {
+/** Attachment kind → the short label Task Detail's resource rows show. */
+const RESOURCE_LABEL: Record<CaptureAttachment['kind'], string> = {
+  image: 'Image',
+  video: 'Video',
+  audio: 'Audio',
+  document: 'File',
+};
+
+/**
+ * Re-open every step that transitively depended on one just un-ticked.
+ *
+ * Without this, un-ticking a prerequisite leaves its dependents "done" while
+ * the thing they were waiting for is open again — a state the lock UI cannot
+ * draw and the user cannot fix, because a done row shows no lock. Cascading
+ * keeps the one invariant worth holding: a done step never has an open
+ * dependency.
+ *
+ * Iterates to a fixed point rather than recursing, so a chain of any depth
+ * settles in one call.
+ */
+function reopenDependents(subtasks: SubTask[], reopened: SubTaskId[]): SubTask[] {
+  if (reopened.length === 0) return subtasks;
+
+  const open = new Set(reopened);
+  let out = subtasks;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    out = out.map((s) => {
+      if (!s.done || !s.dependsOn.some((d) => open.has(d))) return s;
+      open.add(s.id);
+      changed = true;
+      return { ...s, done: false };
+    });
+  }
+
+  return out;
+}
+
+function materialise(p: ProposedTask, resources: Resource[]): Task {
   return {
     id: uid('t'),
     title: p.title,
@@ -329,8 +465,23 @@ function materialise(p: ProposedTask): Task {
     icon: p.icon,
     createdAt: new Date().toISOString(),
     completedAt: null,
-    subtasks: p.subtasks.map((title) => ({ id: uid('s'), title, done: false })),
-    resources: [],
+    // Proposal-local ids exist only so a proposal can express "this waits on
+    // that". Mint the real ids first, then rewrite the edges through that map,
+    // so dependencies survive the crossing from proposal to task.
+    subtasks: (() => {
+      const realId = new Map(p.subtasks.map((s) => [s.id, uid('s')]));
+      return p.subtasks.map((s) => ({
+        id: realId.get(s.id)!,
+        title: s.title,
+        done: false,
+        estimateMin: s.estimateMin,
+        dependsOn: s.dependsOn
+          .map((d) => realId.get(d))
+          .filter((id): id is string => Boolean(id)),
+        delegatedTo: s.delegatedTo ?? null,
+      }));
+    })(),
+    resources,
   };
 }
 
@@ -375,19 +526,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       toggleTask: (id) => dispatch({ type: 'task/toggle', id, at: new Date().toISOString() }),
       toggleSubtask: (taskId, subId) => dispatch({ type: 'task/toggleSub', id: taskId, subId }),
-      addSubtask: (taskId, title) => dispatch({ type: 'task/addSub', id: taskId, title }),
+      addSubtask: (taskId, title, options) =>
+        dispatch({
+          type: 'task/addSub',
+          id: taskId,
+          title,
+          estimateMin: options?.estimateMin ?? 15,
+          dependsOn: options?.dependsOn ?? [],
+        }),
+      delegateSubtask: (taskId, subId, to) =>
+        dispatch({ type: 'task/delegateSub', id: taskId, subId, to }),
+      delegateProposedSubtask: (proposalId, subId, to) =>
+        dispatch({ type: 'review/delegate', proposalId, subId, to }),
       patchTask: (id, patch) => dispatch({ type: 'task/patch', id, patch }),
       removeTask: (id) => dispatch({ type: 'task/remove', id }),
 
       setQuery: (patch) => dispatch({ type: 'query/set', patch }),
 
       setReview: (review) => dispatch({ type: 'review/set', review }),
-      capture: (text, kind, durationSec) =>
-        dispatch({ type: 'inbox/add', text, kind, durationSec }),
+      capture: (text, kind, options) =>
+        dispatch({
+          type: 'inbox/add',
+          text,
+          kind,
+          durationSec: options?.durationSec,
+          attachments: options?.attachments ?? [],
+        }),
       discardCaptures: (ids) => dispatch({ type: 'inbox/removeMany', ids }),
 
       commitReview: (review, accepted) => {
-        const tasks = accepted.map(materialise);
+        /*
+         * Attachments follow their note into the first task it produces.
+         *
+         * They belong to the capture, not to any one proposal, so copying them
+         * onto every task a note yields would duplicate the same file across
+         * three rows. Attaching them to the first — and dropping them on the
+         * floor if that task was dropped — is the only reading that neither
+         * duplicates nor silently discards what the user attached.
+         */
+        const claimed = new Set<CaptureId>();
+        const tasks = accepted.map((proposal) => {
+          const note = data.inbox.find((n) => n.id === proposal.sourceId);
+          const first = note != null && !claimed.has(proposal.sourceId);
+          if (first) claimed.add(proposal.sourceId);
+
+          const resources: Resource[] =
+            first && note
+              ? note.attachments.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  kind: RESOURCE_LABEL[a.kind],
+                  size: formatBytes(a.sizeBytes),
+                }))
+              : [];
+
+          return materialise(proposal, resources);
+        });
         dispatch({ type: 'task/add', tasks });
         dispatch({ type: 'sparks/add', amount: review.sparksReward });
         dispatch({ type: 'inbox/removeMany', ids: review.sourceIds });

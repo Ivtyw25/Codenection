@@ -20,7 +20,9 @@ export type SubTaskId = string;
 export type ResourceId = string;
 export type ShopItemId = string;
 export type CaptureId = string;
+export type AttachmentId = string;
 export type NotificationId = string;
+export type TeammateId = string;
 
 /** Lucide icon names the app is allowed to render. Keeps data → icon total. */
 export type IconName =
@@ -43,10 +45,33 @@ export type TaskLoad = 'low' | 'medium' | 'high';
 
 export type TaskStatus = 'open' | 'done';
 
+/**
+ * One step of a task.
+ *
+ * `dependsOn` is what makes the list a graph rather than a checklist: a step
+ * that waits on unfinished work renders locked and cannot be ticked, so "Next
+ * Action" can never point at something the student is not yet able to start.
+ * Edges only ever point at siblings — see `blockers` in `src/data/derive.ts`.
+ */
 export interface SubTask {
   id: SubTaskId;
   title: string;
   done: boolean;
+  /** Rough minutes. A parent's `estimateMin` is the sum of its steps'. */
+  estimateMin: number;
+  /**
+   * Sibling steps that must be done first. Empty means startable now.
+   *
+   * Acyclic by construction, not by check: seeded breakdowns are authored that
+   * way, and the add-step flow only offers steps that already exist, so a new
+   * edge can only ever point backwards.
+   */
+  dependsOn: SubTaskId[];
+  /**
+   * Handed to a teammate. Their minutes leave the student's Pressure, but the
+   * step still blocks its dependents until someone marks it done.
+   */
+  delegatedTo?: TeammateId | null;
 }
 
 export interface Resource {
@@ -104,6 +129,32 @@ export interface TaskQuery {
 /** How a capture got into the Inbox. A stored fact, not a UI toggle. */
 export type CaptureKind = 'text' | 'voice';
 
+/** What an attachment is, for picking an icon and grouping the tray. */
+export type AttachmentKind = 'image' | 'video' | 'audio' | 'document';
+
+/**
+ * A file carried along with a capture.
+ *
+ * ATTACHED, NOT UPLOADED. There is no backend, so `uri` points at a local file
+ * — the picker's cache copy on this device. The distinction matters: the app
+ * must never imply the file has gone anywhere. Swapping this for real storage
+ * means uploading on commit and replacing `uri` with a remote one; nothing
+ * about the capture flow changes.
+ */
+export interface CaptureAttachment {
+  id: AttachmentId;
+  /** Display name — the picker's filename, or a generated one for media. */
+  name: string;
+  kind: AttachmentKind;
+  /** Local file URI. */
+  uri: string;
+  /** Bytes, when the picker reports it. Rendered by `formatBytes`. */
+  sizeBytes?: number;
+  mimeType?: string;
+  /** Seconds, for audio and video. */
+  durationSec?: number;
+}
+
 /**
  * A raw thought. The Inbox is a queue of these.
  *
@@ -119,6 +170,14 @@ export interface CaptureNote {
   kind: CaptureKind;
   /** Voice only. Drives the "0:11" chip on the Inbox row. */
   durationSec?: number;
+  /**
+   * Supporting context the user attached — documents, media, extra audio.
+   *
+   * Bundled with the note as ONE inbox item rather than filed separately: the
+   * photo of the whiteboard and the sentence about it are the same thought, and
+   * splitting them at capture time would mean re-pairing them at triage time.
+   */
+  attachments: CaptureAttachment[];
   createdAt: string;
 }
 
@@ -138,9 +197,33 @@ export interface ProposedTask {
   estimateMin: number;
   load: TaskLoad;
   icon: IconName;
-  subtasks: string[];
+  subtasks: ProposedSubTask[];
   /** Renders the blue "Calibrate later" hint chip. */
   calibrateLater?: boolean;
+  /**
+   * Trivial enough for the 2-minute rule — renders under "Just do it now"
+   * instead of among the breakdown cards. Still commits as a real task.
+   */
+  twoMinute?: boolean;
+}
+
+/**
+ * A proposed step, before commit.
+ *
+ * Ids here are LOCAL to the proposal and exist only so a proposal can express
+ * "this waits on that" — real `SubTaskId`s are minted in `materialise()`. The
+ * previous shape was a bare `string[]`, which had no ids and therefore could
+ * not carry a dependency at all.
+ */
+export interface ProposedSubTask {
+  id: string;
+  title: string;
+  estimateMin: number;
+  /** Local ids of sibling proposed steps. */
+  dependsOn: string[];
+  /** Pip thinks this could be handed off — drives the delegate section. */
+  delegatable?: boolean;
+  delegatedTo?: TeammateId | null;
 }
 
 /** The amber "Just do it now (2-minute rule)" card. */
@@ -206,6 +289,32 @@ export interface DayRecord {
   state: PipStateName;
 }
 
+// ── Teammates ───────────────────────────────────────────────────────────────
+
+/**
+ * Someone a step can be delegated to.
+ *
+ * Deliberately reuses `PipStateName` and `DayRecord` rather than modelling a
+ * second, parallel notion of "how someone is doing".
+ *
+ * PRIVACY. The delegation screen shows the coarse bucket and the *shape* of the
+ * last week, never numeric scores or what the person is actually working on —
+ * and shows nothing at all for someone who hasn't opted in. Handing work to a
+ * teammate should not become a way to surveil them.
+ */
+export interface Teammate {
+  id: TeammateId;
+  name: string;
+  /** Rendered by `Avatar` when there's no photo. */
+  initials: string;
+  /** False = hasn't opted into sharing; render no state at all. */
+  sharesState: boolean;
+  /** Coarse bucket only. Null when `!sharesState`. */
+  state: PipStateName | null;
+  /** The last 7 closed days, oldest first. Empty when `!sharesState`. */
+  week: DayRecord[];
+}
+
 // ── Shop ────────────────────────────────────────────────────────────────────
 
 export type ShopCategory = 'skins' | 'hats' | 'habitat' | 'auras';
@@ -258,6 +367,7 @@ export interface AppData {
   };
   tasks: Task[];
   inbox: CaptureNote[];
+  teammates: Teammate[];
   vitals: Vital[];
   history: DayRecord[];
   shop: ShopItem[];

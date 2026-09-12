@@ -20,7 +20,7 @@ import {
   queryTasks,
 } from '@/data/derive';
 import { useApp } from './AppStore';
-import type { Capacity, PipState, ProposedTask, Task, TaskId } from '@/types';
+import type { Capacity, PipState, ProposedTask, Task, TaskId, Teammate } from '@/types';
 
 /**
  * A clock that ticks once a minute.
@@ -88,6 +88,12 @@ export function useContextCounts(): Record<string, number> {
 export function useTask(id: TaskId | undefined): Task | null {
   const { data } = useApp();
   return useMemo(() => data.tasks.find((t) => t.id === id) ?? null, [data.tasks, id]);
+}
+
+/** Everyone a step can be handed to — the delegation screen's whole list. */
+export function useTeammates(): Teammate[] {
+  const { data } = useApp();
+  return data.teammates;
 }
 
 /** Unprocessed captures waiting in the queue. Home's badge and the Inbox header. */

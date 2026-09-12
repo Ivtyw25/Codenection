@@ -1,3 +1,4 @@
+export * from './AttachmentTray';
 export * from './FilterDrawer';
 export * from './ForestHeader';
 export * from './Gauge';

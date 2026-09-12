@@ -15,10 +15,12 @@ import type {
   CaptureNote,
   CaptureReview,
   IconName,
+  ProposedSubTask,
   ProposedTask,
   TaskContext,
   TaskLoad,
 } from '@/types';
+import { SEEDED_BREAKDOWNS } from './breakdowns';
 import { seedData } from './seed';
 import { startOfDay } from './format';
 
@@ -193,7 +195,20 @@ function parseNote(note: CaptureNote, now: Date): { proposed: ProposedTask[]; qu
     // suppresses the "Calibrate later" chip that exists precisely to say "I
     // couldn't tell". Better to admit the gap than to invent a deadline.
     const dueAt = parseDue(part, now);
-    const subtasks = clauses(part).length > 1 ? clauses(part).slice(1).map(titleCase) : [];
+
+    // A clause that splits no further is one action, and manufacturing a single
+    // sub-task out of it just adds a row that says the same thing twice.
+    const steps = clauses(part).slice(1);
+    const each = steps.length > 0 ? Math.max(5, Math.round(minutes / steps.length)) : 0;
+    const subtasks: ProposedSubTask[] = steps.map((title, i) => ({
+      id: `s${i + 1}`,
+      title: titleCase(title),
+      estimateMin: each,
+      // The sentence narrates these in order, so each one follows the last.
+      // A guess — but the same guess the user's own phrasing makes, and it is
+      // editable before commit.
+      dependsOn: i === 0 ? [] : [`s${i}`],
+    }));
 
     proposed.push({
       id: uid('p'),
@@ -239,6 +254,15 @@ export async function processInbox(
   let quickWin: CaptureReview['quickWin'] = null;
 
   for (const note of notes) {
+    // Seeded captures have authored breakdowns — real dependencies, which no
+    // amount of clause-splitting could infer. Anything the user typed still
+    // goes through the parser.
+    const authored = SEEDED_BREAKDOWNS[note.id];
+    if (authored) {
+      proposed.push(...authored.map((p) => ({ ...p, subtasks: p.subtasks.map((s) => ({ ...s })) })));
+      continue;
+    }
+
     const result = parseNote(note, now);
     proposed.push(...result.proposed);
     quickWin = quickWin ?? result.quickWin;

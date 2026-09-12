@@ -2,10 +2,20 @@ import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { CalendarDays, CheckCircle2, Info, Quote, Sparkles, X, Zap } from 'lucide-react-native';
+import {
+  CalendarDays,
+  CheckCircle2,
+  Info,
+  Quote,
+  Sparkles,
+  UserPlus,
+  X,
+  Zap,
+} from 'lucide-react-native';
 
 import { PipMascot } from '@/components/app';
 import {
+  Avatar,
   Button,
   Checkbox,
   Chip,
@@ -17,7 +27,7 @@ import {
 } from '@/components/ui';
 import { formatDue, formatEstimate } from '@/data/format';
 import { useApp } from '@/store/AppStore';
-import { useBudget, useNow, usePipState } from '@/store/selectors';
+import { useBudget, useNow, usePipState, useTeammates } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
 import type { ProposedTask } from '@/types';
 
@@ -42,6 +52,7 @@ export default function ReviewScreen() {
   const pip = usePipState();
 
   const { state, data, commitReview, setReview, toast } = useApp();
+  const teammates = useTeammates();
   const review = state.review;
   // Lifted out so the memo below depends on the list itself rather than on
   // `data` — the React Compiler cannot preserve a `data.inbox` dependency.
@@ -71,9 +82,31 @@ export default function ReviewScreen() {
    * notes are still in the Inbox at this point (the commit is what retires
    * them), so their raw text is available to label each group.
    */
+  /**
+   * Trivial items are pulled out of the breakdown list, not out of the commit.
+   *
+   * They still become real tasks — the split is only about not making a
+   * two-minute errand look like a project next to a 150-minute one.
+   */
+  const trivial = useMemo(() => accepted.filter((p) => p.twoMinute), [accepted]);
+  const breakdown = useMemo(() => accepted.filter((p) => !p.twoMinute), [accepted]);
+
+  /**
+   * Steps worth handing off, lifted out of their cards so the decision is
+   * offered once, at the moment the work is being shaped — rather than waiting
+   * to be rediscovered inside a task detail screen days later.
+   */
+  const delegatable = useMemo(
+    () =>
+      accepted.flatMap((p) =>
+        p.subtasks.filter((s) => s.delegatable).map((sub) => ({ proposal: p, sub })),
+      ),
+    [accepted],
+  );
+
   const groups = useMemo(() => {
-    const bySource = new Map<string, typeof accepted>();
-    for (const task of accepted) {
+    const bySource = new Map<string, typeof breakdown>();
+    for (const task of breakdown) {
       const list = bySource.get(task.sourceId) ?? [];
       list.push(task);
       bySource.set(task.sourceId, list);
@@ -83,7 +116,7 @@ export default function ReviewScreen() {
       note: inbox.find((n) => n.id === sourceId) ?? null,
       tasks,
     }));
-  }, [accepted, inbox]);
+  }, [breakdown, inbox]);
 
   const multiSource = review != null && review.sourceIds.length > 1;
 
@@ -194,7 +227,114 @@ export default function ReviewScreen() {
             ))
           )}
 
+          {/* ── Delegation ──────────────────────────────────────────────── */}
+          {delegatable.length > 0 ? (
+            <>
+              <View style={styles.quickHead}>
+                <UserPlus size={15} color={status.info.solid} />
+                <Txt variant="h4" color={status.info.fg}>
+                  Could be delegated
+                </Txt>
+              </View>
+
+              {delegatable.map(({ proposal, sub }) => {
+                const assignee = teammates.find((m) => m.id === sub.delegatedTo) ?? null;
+                return (
+                  <View
+                    key={`${proposal.id}:${sub.id}`}
+                    style={[
+                      styles.quickCard,
+                      { backgroundColor: status.info.bg, borderColor: status.info.solid },
+                    ]}
+                  >
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Txt variant="bodySm">{sub.title}</Txt>
+                      <Txt variant="caption" color={status.info.fg}>
+                        {formatEstimate(sub.estimateMin)} · from {proposal.title}
+                      </Txt>
+                    </View>
+
+                    {assignee ? (
+                      <Interactive
+                        accessibilityRole="button"
+                        accessibilityLabel={`Reassign ${sub.title}, currently ${assignee.name}`}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/delegate',
+                            params: { proposalId: proposal.id, subId: sub.id },
+                          })
+                        }
+                        radius="pill"
+                        style={styles.assigned}
+                      >
+                        <Avatar initials={assignee.initials} size={20} />
+                        <Txt variant="caption" color={status.info.fg}>
+                          {assignee.name}
+                        </Txt>
+                      </Interactive>
+                    ) : (
+                      <Button
+                        label="Choose someone"
+                        variant="secondary"
+                        size="sm"
+                        onPress={() =>
+                          router.push({
+                            pathname: '/delegate',
+                            params: { proposalId: proposal.id, subId: sub.id },
+                          })
+                        }
+                      />
+                    )}
+                  </View>
+                );
+              })}
+            </>
+          ) : null}
+
           {/* ── 2-minute rule ───────────────────────────────────────────── */}
+          {trivial.length > 0 ? (
+            <>
+              <View style={styles.quickHead}>
+                <Zap size={15} color={status.warning.solid} />
+                <Txt variant="h4" color={status.warning.fg}>
+                  Just do it now (2-minute rule)
+                </Txt>
+              </View>
+
+              {trivial.map((task) => (
+                <View
+                  key={task.id}
+                  style={[
+                    styles.quickCard,
+                    { backgroundColor: status.warning.bg, borderColor: status.warning.solid },
+                  ]}
+                >
+                  <Zap size={16} color={status.warning.solid} />
+                  <View style={{ flex: 1 }}>
+                    <Txt variant="bodySm">{task.title}</Txt>
+                    <Txt variant="caption" color={status.warning.fg}>
+                      {formatEstimate(task.estimateMin)} · no steps needed
+                    </Txt>
+                  </View>
+                  <IconButton
+                    icon={<X size={14} color={scheme.textMuted} />}
+                    accessibilityLabel={`Drop ${task.title}`}
+                    size={32}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setDropped((d) => [...d, task.id]);
+                      toast('Dropped from this batch', 'neutral', {
+                        label: 'Undo',
+                        run: () => setDropped((d) => d.filter((id) => id !== task.id)),
+                      });
+                    }}
+                  />
+                </View>
+              ))}
+            </>
+          ) : null}
+
+          {/* Legacy parser quick-win — typed captures can still produce one. */}
           {review.quickWin ? (
             <>
               <View style={styles.quickHead}>
@@ -309,6 +449,7 @@ function ProposedCard({
   onDrop: () => void;
 }) {
   const scheme = useScheme();
+  const teammates = useTeammates();
 
   return (
     <View style={[styles.card, { borderColor: scheme.border }]}>
@@ -373,14 +514,46 @@ function ProposedCard({
 
       {task.subtasks.length > 0 ? (
         <View style={{ gap: space[1.5], marginTop: space[1] }}>
-          {task.subtasks.map((sub, i) => (
-            <View key={i} style={styles.subRow}>
-              <View style={[styles.radio, { borderColor: scheme.borderStrong }]} />
-              <Txt variant="bodySm" muted style={{ flex: 1 }}>
-                {sub}
-              </Txt>
-            </View>
-          ))}
+          {task.subtasks.map((sub) => {
+            // Shown before commit on purpose: ordering is the part of a
+            // breakdown most worth disagreeing with, and it is much cheaper to
+            // notice here than after four tasks are already on the Manifest.
+            const after = sub.dependsOn
+              .map((d) => task.subtasks.find((s) => s.id === d)?.title)
+              .filter(Boolean);
+            const assignee = teammates.find((m) => m.id === sub.delegatedTo) ?? null;
+
+            return (
+              <View key={sub.id} style={styles.subRow}>
+                <View style={[styles.radio, { borderColor: scheme.borderStrong }]} />
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Txt variant="bodySm" muted>
+                    {sub.title}
+                  </Txt>
+                  <View style={styles.subMeta}>
+                    <Txt variant="caption" color={scheme.textDisabled}>
+                      {formatEstimate(sub.estimateMin)}
+                    </Txt>
+                    {after.length > 0 ? (
+                      <Txt
+                        variant="caption"
+                        color={scheme.textDisabled}
+                        numberOfLines={1}
+                        style={{ flex: 1 }}
+                      >
+                        · after {after.join(' + ')}
+                      </Txt>
+                    ) : null}
+                    {assignee ? (
+                      <Txt variant="caption" color={status.info.solid} numberOfLines={1}>
+                        · {assignee.name}
+                      </Txt>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -432,7 +605,9 @@ const styles = StyleSheet.create({
   },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1.5] },
-  subRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  subRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
+  subMeta: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  assigned: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   radio: { width: 16, height: 16, borderRadius: radius.pill, borderWidth: 1.5 },
 
   quickHead: {
