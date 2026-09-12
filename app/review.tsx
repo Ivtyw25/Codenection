@@ -1,11 +1,23 @@
-import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { CalendarDays, CheckCircle2, Info, Sparkles, X, Zap } from 'lucide-react-native';
 
-import { Button, Chip, Txt } from '@/components/ui';
-import { PIP_BASE } from '@/data/shop';
-import { REVIEW } from '@/data/mock';
+import { PipMascot } from '@/components/app';
+import {
+  Button,
+  Checkbox,
+  Chip,
+  EmptyState,
+  IconButton,
+  Input,
+  Interactive,
+  Txt,
+} from '@/components/ui';
+import { formatDue, formatEstimate } from '@/data/format';
+import { useApp } from '@/store/AppStore';
+import { useBudget, useNow, usePipState } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
 import type { ProposedTask } from '@/types';
 
@@ -15,27 +27,84 @@ const LOAD_LABEL: Record<ProposedTask['load'], string> = {
   high: 'High Load',
 };
 
-/** SCR-21 — AI Processing Review. Confirm what Pip extracted before committing. */
+/**
+ * SCR-21 — AI Processing Review. Confirm what Pip extracted before committing.
+ *
+ * Three things the frame could only imply, now real: the proposals are the
+ * parse of what was typed, titles are editable in place, and the budget line
+ * runs the actual pressure function over the hypothetical list — so the number
+ * it promises is the number Home shows a second later.
+ */
 export default function ReviewScreen() {
   const router = useRouter();
   const scheme = useScheme();
-  const [dropped, setDropped] = useState<string[]>([]);
-  const [quickDone, setQuickDone] = useState(false);
+  const now = useNow();
+  const pip = usePipState();
 
-  const proposed = REVIEW.proposed.filter((p) => !dropped.includes(p.id));
+  const { state, commitReview, setReview, toast } = useApp();
+  const review = state.review;
+
+  const [dropped, setDropped] = useState<string[]>([]);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<string | null>(null);
+  const [quickDone, setQuickDone] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
+  const accepted = useMemo(
+    () =>
+      (review?.proposed ?? [])
+        .filter((p) => !dropped.includes(p.id))
+        .map((p) => ({ ...p, title: edits[p.id] ?? p.title })),
+    [review, dropped, edits],
+  );
+
+  const budget = useBudget(accepted);
+
+  const commit = useCallback(() => {
+    if (!review || accepted.length === 0) return;
+    setCommitting(true);
+    const created = commitReview(review, accepted);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    toast(
+      `${created.length} task${created.length === 1 ? '' : 's'} added · +${review.sparksReward} Sparks`,
+      'success',
+    );
+    setCommitting(false);
+    router.replace('/tasks');
+  }, [review, accepted, commitReview, toast, router]);
+
+  // Reached by deep link, or after a commit cleared the handoff.
+  if (!review) {
+    return (
+      <View style={[styles.root, { backgroundColor: scheme.scrim }]}>
+        <View style={[styles.sheet, { backgroundColor: scheme.surface }]}>
+          <EmptyState
+            icon={<Sparkles size={28} color={scheme.textMuted} />}
+            title="Nothing to review"
+            body="Reviews are produced by the capture sheet. Start one and Pip will break it down."
+            action={{ label: 'Capture a thought', onPress: () => router.replace('/capture') }}
+          />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: scheme.scrim }]}>
       <View style={[styles.sheet, { backgroundColor: scheme.surface }]}>
         <View style={[styles.handle, { backgroundColor: scheme.borderStrong }]} />
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* ── Head ────────────────────────────────────────────────────── */}
           <View style={styles.head}>
-            <Image source={PIP_BASE} style={styles.mascot} resizeMode="contain" />
+            <PipMascot size={52} state={pip.name} />
             <View style={{ flex: 1, gap: space[1] }}>
               <Chip
-                label={`${proposed.length} tasks extracted`}
+                label={`${accepted.length} task${accepted.length === 1 ? '' : 's'} extracted`}
                 tone="success"
                 size="sm"
                 icon={<Sparkles size={11} color={status.success.solid} />}
@@ -49,16 +118,41 @@ export default function ReviewScreen() {
               PROPOSED MANIFEST TASKS
             </Txt>
             <Txt variant="caption" muted>
-              Tap title to edit
+              Tap a title to edit
             </Txt>
           </View>
 
-          {proposed.map((p) => (
-            <ProposedCard key={p.id} task={p} onDrop={() => setDropped((d) => [...d, p.id])} />
-          ))}
+          {accepted.length === 0 ? (
+            <EmptyState
+              icon={<Info size={26} color={scheme.textMuted} />}
+              title="You dropped everything"
+              body="Nothing will be added. Go back and edit the capture, or restore one below."
+              action={{ label: 'Restore all', onPress: () => setDropped([]) }}
+            />
+          ) : (
+            accepted.map((task) => (
+              <ProposedCard
+                key={task.id}
+                task={task}
+                now={now}
+                editing={editing === task.id}
+                onEdit={() => setEditing(task.id)}
+                onChangeTitle={(title) => setEdits((e) => ({ ...e, [task.id]: title }))}
+                onCommitTitle={() => setEditing(null)}
+                onDrop={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setDropped((d) => [...d, task.id]);
+                  toast('Dropped from this batch', 'neutral', {
+                    label: 'Undo',
+                    run: () => setDropped((d) => d.filter((id) => id !== task.id)),
+                  });
+                }}
+              />
+            ))
+          )}
 
           {/* ── 2-minute rule ───────────────────────────────────────────── */}
-          {REVIEW.quickWin ? (
+          {review.quickWin ? (
             <>
               <View style={styles.quickHead}>
                 <Zap size={15} color={status.warning.solid} />
@@ -73,41 +167,52 @@ export default function ReviewScreen() {
                   { backgroundColor: status.warning.bg, borderColor: status.warning.solid },
                 ]}
               >
-                <Pressable
-                  onPress={() => setQuickDone((v) => !v)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: quickDone }}
-                  accessibilityLabel={REVIEW.quickWin.title}
-                  style={[styles.quickRing, { borderColor: status.warning.solid }]}
-                >
-                  {quickDone ? (
-                    <CheckCircle2 size={16} color={status.warning.solid} />
-                  ) : null}
-                </Pressable>
+                <Checkbox
+                  checked={quickDone}
+                  onToggle={(next) => {
+                    setQuickDone(next);
+                    if (next) {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                      toast('Cleared without scheduling it', 'success');
+                    }
+                  }}
+                  accessibilityLabel={review.quickWin.title}
+                  size={22}
+                />
                 <View style={{ flex: 1 }}>
-                  <Txt variant="bodySm">{REVIEW.quickWin.title}</Txt>
+                  <Txt variant="bodySm" style={quickDone ? styles.strike : undefined}>
+                    {review.quickWin.title}
+                  </Txt>
                   <Txt variant="caption" color={status.warning.fg}>
-                    {REVIEW.quickWin.note}
+                    {review.quickWin.note}
                   </Txt>
                 </View>
-                <Button
-                  label="Done"
-                  variant="secondary"
-                  size="sm"
-                  onPress={() => setQuickDone(true)}
-                />
               </View>
             </>
           ) : null}
 
           {/* ── Budget ──────────────────────────────────────────────────── */}
           <View style={[styles.budget, { backgroundColor: scheme.surfaceAlt }]}>
-            <View style={[styles.budgetDot, { backgroundColor: status.success.solid }]} />
+            <View
+              style={[
+                styles.budgetDot,
+                {
+                  backgroundColor:
+                    budget.remaining > 40
+                      ? status.success.solid
+                      : budget.remaining > 15
+                        ? status.warning.solid
+                        : status.danger.solid,
+                },
+              ]}
+            />
             <Txt variant="caption" muted style={{ flex: 1 }}>
-              Fits today&apos;s remaining cognitive budget ({REVIEW.budgetRemaining}% left)
+              {accepted.length === 0
+                ? `Nothing added — pressure stays at ${budget.before}%.`
+                : `Pressure ${budget.before}% → ${budget.after}% (${budget.remaining}% budget left)`}
             </Txt>
             <Txt variant="caption" color={status.warning.fg}>
-              +{REVIEW.sparksReward} Sparks
+              +{review.sparksReward} Sparks
             </Txt>
           </View>
         </ScrollView>
@@ -115,51 +220,100 @@ export default function ReviewScreen() {
         {/* ── Footer ──────────────────────────────────────────────────────── */}
         <View style={styles.footer}>
           <Button
-            label={`Add ${proposed.length} task${proposed.length === 1 ? '' : 's'}`}
+            label={`Add ${accepted.length} task${accepted.length === 1 ? '' : 's'}`}
             fullWidth
-            disabled={proposed.length === 0}
+            loading={committing}
+            disabled={accepted.length === 0}
+            disabledReason="Restore at least one task first"
             icon={<CheckCircle2 size={16} color={scheme.onPrimary} />}
-            onPress={() => router.replace('/tasks')}
+            onPress={commit}
           />
-          <Pressable
-            onPress={() => router.back()}
+          <Interactive
             accessibilityRole="button"
+            accessibilityLabel="Go back and edit the capture"
+            onPress={() => {
+              setReview(null);
+              router.replace('/capture');
+            }}
+            radius="pill"
             style={styles.editMore}
           >
             <Txt variant="label" muted>
-              Edit more
+              Edit the capture
             </Txt>
-          </Pressable>
+          </Interactive>
         </View>
       </View>
     </View>
   );
 }
 
-function ProposedCard({ task, onDrop }: { task: ProposedTask; onDrop: () => void }) {
+function ProposedCard({
+  task,
+  now,
+  editing,
+  onEdit,
+  onChangeTitle,
+  onCommitTitle,
+  onDrop,
+}: {
+  task: ProposedTask;
+  now: Date;
+  editing: boolean;
+  onEdit: () => void;
+  onChangeTitle: (title: string) => void;
+  onCommitTitle: () => void;
+  onDrop: () => void;
+}) {
   const scheme = useScheme();
 
   return (
     <View style={[styles.card, { borderColor: scheme.border }]}>
       <View style={styles.cardHead}>
-        <Txt variant="h4" style={{ flex: 1 }}>
-          {task.title}
-        </Txt>
-        <Pressable
-          onPress={onDrop}
-          accessibilityRole="button"
+        {editing ? (
+          <View style={{ flex: 1 }}>
+            <Input
+              value={task.title}
+              onChangeText={onChangeTitle}
+              onBlur={onCommitTitle}
+              onSubmitEditing={onCommitTitle}
+              autoFocus
+              returnKeyType="done"
+              maxLength={120}
+              showCount
+              accessibilityLabel="Task title"
+            />
+          </View>
+        ) : (
+          <Interactive
+            accessibilityRole="button"
+            accessibilityLabel={`Edit title: ${task.title}`}
+            onPress={onEdit}
+            radius="sm"
+            style={{ flex: 1 }}
+          >
+            <Txt variant="h4">{task.title}</Txt>
+          </Interactive>
+        )}
+
+        <IconButton
+          icon={<X size={16} color={scheme.textMuted} />}
           accessibilityLabel={`Remove ${task.title}`}
-          hitSlop={10}
-        >
-          <X size={16} color={scheme.textMuted} />
-        </Pressable>
+          size={30}
+          tone="ghost"
+          onPress={onDrop}
+        />
       </View>
 
       <View style={styles.chipRow}>
         <Chip label={task.context} size="sm" tone="success" />
-        <Chip label={task.due} size="sm" icon={<CalendarDays size={11} color={scheme.textSecondary} />} />
         <Chip
-          label={`${LOAD_LABEL[task.load]} · ${task.estimate}`}
+          label={formatDue(task.dueAt, now)}
+          size="sm"
+          icon={<CalendarDays size={11} color={scheme.textSecondary} />}
+        />
+        <Chip
+          label={`${LOAD_LABEL[task.load]} · ${formatEstimate(task.estimateMin)}`}
           size="sm"
           tone={task.load === 'high' ? 'warning' : 'neutral'}
         />
@@ -176,11 +330,11 @@ function ProposedCard({ task, onDrop }: { task: ProposedTask; onDrop: () => void
 
       {task.subtasks.length > 0 ? (
         <View style={{ gap: space[1.5], marginTop: space[1] }}>
-          {task.subtasks.map((s) => (
-            <View key={s} style={styles.subRow}>
+          {task.subtasks.map((sub, i) => (
+            <View key={i} style={styles.subRow}>
               <View style={[styles.radio, { borderColor: scheme.borderStrong }]} />
               <Txt variant="bodySm" muted style={{ flex: 1 }}>
-                {s}
+                {sub}
               </Txt>
             </View>
           ))}
@@ -210,7 +364,6 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: space[4] },
 
   head: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  mascot: { width: 52, height: 52 },
 
   sectionHead: {
     flexDirection: 'row',
@@ -248,14 +401,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.lg,
   },
-  quickRing: {
-    width: 24,
-    height: 24,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  strike: { textDecorationLine: 'line-through' },
 
   budget: {
     flexDirection: 'row',
@@ -268,5 +414,5 @@ const styles = StyleSheet.create({
   budgetDot: { width: 8, height: 8, borderRadius: radius.pill },
 
   footer: { gap: space[2], paddingTop: space[3] },
-  editMore: { alignSelf: 'center', paddingVertical: space[2] },
+  editMore: { alignSelf: 'center', paddingVertical: space[2], paddingHorizontal: space[3] },
 });

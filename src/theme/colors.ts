@@ -159,8 +159,22 @@ export const dark: Scheme = {
   border: '#2c3630',
   borderStrong: '#3b463e',
 
-  /** Primary holds constant across themes — but lifts for text legibility. */
-  primary: brand.forest,
+  /**
+   * The one place this file departs from the teardown's reading.
+   *
+   * The teardown says "primary and secondary hold constant across both themes",
+   * and as a *text* colour that is fine. As a **fill** it is not: forest
+   * `#26402b` measures 1.45:1 against the dark surface `#1a211c` and 1.14:1
+   * against `#21362d`, so a filled button, a selected tab or a chart bar
+   * effectively disappears. WCAG puts the floor for a non-text UI component at
+   * 3:1, and forest-on-dark misses it by a factor of two.
+   *
+   * `#457a52` is the lifted forest: same hue family, 5.05:1 against white so
+   * `onPrimary` still passes AA, and 3.25–3.58:1 against all three dark
+   * surfaces so the component is actually visible. Verified on device — the
+   * Reflect chart's "today" bar was invisible before this.
+   */
+  primary: '#457a52',
   onPrimary: '#ffffff',
   secondary: brand.lime,
   onSecondary: brand.forest,

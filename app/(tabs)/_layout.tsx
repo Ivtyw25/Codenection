@@ -1,8 +1,10 @@
-import { Image, Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { BarChart3, CheckSquare, Home, User } from 'lucide-react-native';
 
-import { PIP_BASE } from '@/data/shop';
+import { PipMascot } from '@/components/app';
+import { useApp } from '@/store/AppStore';
+import { usePipState } from '@/store/selectors';
 import { radius, space, type, useScheme } from '@/theme';
 
 /**
@@ -14,6 +16,8 @@ const PIP_BUTTON = 56;
 
 function PipTabButton({ focused }: { focused: boolean }) {
   const scheme = useScheme();
+  const pip = usePipState();
+
   return (
     <View
       style={[
@@ -27,13 +31,16 @@ function PipTabButton({ focused }: { focused: boolean }) {
         },
       ]}
     >
-      <Image source={PIP_BASE} style={styles.pipImage} resizeMode="contain" />
+      <PipMascot size={38} state={pip.name} />
     </View>
   );
 }
 
 export default function TabsLayout() {
   const scheme = useScheme();
+  const { data } = useApp();
+
+  const openToday = data.tasks.filter((t) => t.status === 'open').length;
 
   return (
     <Tabs
@@ -64,6 +71,9 @@ export default function TabsLayout() {
         name="tasks"
         options={{
           title: 'Tasks',
+          // Live count — the bar reports the backlog without being opened.
+          tabBarBadge: openToday > 0 ? openToday : undefined,
+          tabBarBadgeStyle: { backgroundColor: scheme.primary, color: scheme.onPrimary, fontSize: 10 },
           tabBarIcon: ({ color, focused }) => (
             <CheckSquare size={22} color={color} strokeWidth={focused ? 2.4 : 2} />
           ),
@@ -113,5 +123,4 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  pipImage: { width: 38, height: 38 },
 });

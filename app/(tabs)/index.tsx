@@ -1,221 +1,296 @@
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useState } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Bell, ChevronRight, Flame, Leaf } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { Bell, CheckCircle2, ChevronRight, Clock, Flame, Leaf } from 'lucide-react-native';
 
-import { Card, Checkbox, Chip, ProgressBar, Txt } from '@/components/ui';
-import { PIP_BASE } from '@/data/shop';
-import { PIP, TASKS, USER_NAME } from '@/data/mock';
-import { brand, n, radius, space, status, useScheme } from '@/theme';
-import type { Task } from '@/types';
+import {
+  ForestHeader,
+  Gauge,
+  NotificationsDrawer,
+  PipMascot,
+  StatTile,
+  StreakDrawer,
+  TaskCard,
+  onForest,
+} from '@/components/app';
+import { Card, Chip, EmptyState, IconButton, Interactive, Txt } from '@/components/ui';
+import { formatEstimate } from '@/data/format';
+import { useApp } from '@/store/AppStore';
+import {
+  useCapacity,
+  useFocusTasks,
+  useNow,
+  usePipState,
+  useStreak,
+  useUnreadCount,
+  useWeekSeries,
+} from '@/store/selectors';
+import { radius, space, status, useScheme } from '@/theme';
 
 /**
- * Home — the daily landing screen.
+ * Home — SCR-10.
  *
- * The forest header is the system's spine colour carrying a full-bleed surface;
- * everything below it sits on the light ground in cards. That contrast is the
- * screen's whole structure, so the header keeps its own fixed dark palette in
- * both themes rather than inverting with the scheme.
+ * Every figure on this screen is derived. The state card reads whatever the
+ * open task list currently adds up to; ticking a row here moves the gauges
+ * above it and the mascot in the tab bar below it in the same frame.
  */
 export default function HomeScreen() {
   const scheme = useScheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { capacity, state, streakDays } = PIP;
+  const now = useNow();
+
+  const { data, toggleTask, toggleSubtask, reload, toast } = useApp();
+  const capacity = useCapacity();
+  const pip = usePipState();
+  const streak = useStreak();
+  const focus = useFocusTasks();
+  const week = useWeekSeries();
+  const unread = useUnreadCount();
+
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [streakOpen, setStreakOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    reload();
+    // The bootstrap resolves into the store; the control just needs releasing.
+    setTimeout(() => setRefreshing(false), 900);
+  }, [reload]);
+
+  const completeTask = useCallback(
+    (id: string, title: string, wasDone: boolean) => {
+      Haptics.impactAsync(
+        wasDone ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
+      ).catch(() => {});
+      toggleTask(id);
+      if (!wasDone) {
+        toast(`“${title.slice(0, 32)}${title.length > 32 ? '…' : ''}” done`, 'success', {
+          label: 'Undo',
+          run: () => toggleTask(id),
+        });
+      }
+    },
+    [toggleTask, toast],
+  );
+
+  // This Week — the two metrics from Figma 19:485, over the real 7-day series.
+  const weekCompleted = week.reduce((sum, d) => sum + d.tasksCompleted, 0);
+  const weekPlanned = Math.max(weekCompleted, week.length * 3);
+  const focusMinutes = data.tasks
+    .filter((t) => t.completedAt)
+    .reduce((sum, t) => sum + t.estimateMin, 0);
+
+  const stateTone =
+    pip.name === 'balanced' ? 'success' : pip.name === 'critical' || pip.name === 'depleted' ? 'danger' : 'warning';
 
   return (
     <View style={{ flex: 1, backgroundColor: scheme.ground }}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: space[10] }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={scheme.primary} />
+        }
       >
-        {/* ── Forest header ─────────────────────────────────────────────── */}
-        <View style={[styles.header, { paddingTop: insets.top + space[2] }]}>
+        <ForestHeader pad={space[8]}>
           <View style={styles.headerTop}>
             <View style={styles.brandRow}>
-              <Txt variant="h3" color={n[0]}>
+              <Txt variant="h3" color={onForest.primary}>
                 pip
               </Txt>
-              <Leaf size={16} color={brand.lime} />
+              <Leaf size={16} color={scheme.secondary} />
             </View>
-            <Pressable
-              accessibilityRole="button"
+            <IconButton
+              icon={<Bell size={18} color={onForest.primary} />}
               accessibilityLabel="Notifications"
-              style={[styles.iconButton, { borderColor: 'rgba(255,255,255,0.18)' }]}
-            >
-              <Bell size={18} color={n[0]} />
-            </Pressable>
+              tone="onDark"
+              badge={unread}
+              onPress={() => setNotifOpen(true)}
+            />
           </View>
 
           <View style={styles.greetRow}>
             <View style={styles.greetText}>
-              <Txt variant="bodySm" color="rgba(255,255,255,0.72)">
-                Good morning,
+              <Txt variant="bodySm" color={onForest.secondary}>
+                {greeting(now)},
               </Txt>
-              <Txt variant="h1" color={n[0]}>
-                {USER_NAME}
+              <Txt variant="h1" color={onForest.primary}>
+                {data.user.name}
               </Txt>
-              <Txt variant="bodySm" color="rgba(255,255,255,0.62)">
+              <Txt variant="bodySm" color={onForest.muted}>
                 Small steps, big progress.
               </Txt>
             </View>
-            <Image source={PIP_BASE} style={styles.mascot} resizeMode="contain" />
+            <PipMascot size={92} state={pip.name} />
           </View>
-        </View>
+        </ForestHeader>
 
-        {/* ── State + capacity ──────────────────────────────────────────── */}
         <View style={styles.body}>
-          <Card elevated style={styles.stateCard}>
+          {/* ── Pip's current state ─────────────────────────────────────── */}
+          <Card
+            elevated
+            style={styles.stateCard}
+            onPress={() => router.push('/pip')}
+            accessibilityLabel={`Pip is ${pip.label}. ${pip.blurb}`}
+            accessibilityHint="Opens Pip's detail"
+          >
             <View style={styles.stateHead}>
-              <View style={[styles.stateBadge, { backgroundColor: status.success.bg }]}>
-                <Leaf size={16} color={status.success.solid} />
+              <View style={[styles.stateBadge, { backgroundColor: status[stateTone].bg }]}>
+                <Leaf size={16} color={status[stateTone].solid} />
               </View>
               <View style={{ flex: 1 }}>
                 <Txt variant="caption" muted>
                   Pip&apos;s current state
                 </Txt>
-                <Txt variant="h3">{state.label}</Txt>
+                <Txt variant="h3">{pip.label}</Txt>
               </View>
+              <ChevronRight size={18} color={scheme.textMuted} />
             </View>
 
-            <Gauge
-              label="Pressure"
-              value={capacity.pressure}
-              tone="warning"
-              hint={capacity.pressureNote}
-            />
-            <Gauge label="Vitality" value={capacity.vitality} tone="success" hint={capacity.vitalityNote} />
+            <Gauge label="Pressure" value={capacity.pressure} kind="pressure" hint={capacity.pressureNote} />
+            <Gauge label="Vitality" value={capacity.vitality} kind="vitality" hint={capacity.vitalityNote} />
           </Card>
 
-          <Pressable
+          {/* ── Streak ──────────────────────────────────────────────────── */}
+          <Interactive
             accessibilityRole="button"
-            accessibilityLabel={`${streakDays} consecutive balanced days. View streak details.`}
+            accessibilityLabel={
+              streak.days > 0
+                ? `${streak.days} consecutive balanced days. View streak details.`
+                : 'No active streak. View streak details.'
+            }
+            onPress={() => setStreakOpen(true)}
+            radius="lg"
             style={[styles.streak, { backgroundColor: scheme.surface, borderColor: scheme.border }]}
           >
-            <Flame size={18} color={status.warning.solid} />
+            <Flame size={18} color={streak.days > 0 ? status.warning.solid : scheme.textDisabled} />
             <Txt variant="bodySm" style={{ flex: 1 }}>
-              <Txt variant="bodySm" style={{ fontWeight: '600' }}>
-                {streakDays} consecutive days
-              </Txt>
-              {` in a balanced state — your longest streak in a month!`}
+              {streak.days > 0 ? (
+                <>
+                  <Txt variant="bodySm" style={styles.semibold}>
+                    {streak.days} consecutive {streak.days === 1 ? 'day' : 'days'}
+                  </Txt>
+                  {' in a balanced state — keep it going.'}
+                </>
+              ) : (
+                'No streak running. One balanced day starts a new one.'
+              )}
             </Txt>
             <ChevronRight size={18} color={scheme.textMuted} />
-          </Pressable>
+          </Interactive>
 
           {/* ── Today's Focus ───────────────────────────────────────────── */}
           <View style={styles.sectionHead}>
             <Txt variant="h3">Today&apos;s Focus</Txt>
-            <Pressable
+            <Interactive
               accessibilityRole="button"
+              accessibilityLabel="View all tasks"
               onPress={() => router.push('/tasks')}
+              radius="pill"
               style={styles.viewAll}
             >
               <Txt variant="label" color={scheme.primary}>
                 View all
               </Txt>
               <ChevronRight size={16} color={scheme.primary} />
-            </Pressable>
+            </Interactive>
           </View>
 
-          {TASKS.map((task) => (
-            <TaskRow key={task.id} task={task} onPress={() => router.push(`/task/${task.id}`)} />
-          ))}
+          {focus.length > 0 ? (
+            focus.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                compact
+                now={now}
+                onPress={() => router.push(`/task/${task.id}`)}
+                onToggle={() => completeTask(task.id, task.title, task.status === 'done')}
+                onToggleSubtask={(subId) => {
+                  Haptics.selectionAsync().catch(() => {});
+                  toggleSubtask(task.id, subId);
+                }}
+              />
+            ))
+          ) : (
+            <Card>
+              <EmptyState
+                icon={<CheckCircle2 size={28} color={status.success.solid} />}
+                title="Nothing left for today"
+                body="Your manifest is clear. Pip is going to be insufferable about this."
+                action={{ label: 'Capture something', onPress: () => router.push('/capture') }}
+              />
+            </Card>
+          )}
+
+          {/* ── This Week (Figma 19:485) ────────────────────────────────── */}
+          <View style={styles.sectionHead}>
+            <Txt variant="h3">This Week</Txt>
+            <Interactive
+              accessibilityRole="button"
+              accessibilityLabel="Open Reflect"
+              onPress={() => router.push('/reflect')}
+              radius="pill"
+              style={styles.viewAll}
+            >
+              <Txt variant="label" color={scheme.primary}>
+                See trends
+              </Txt>
+              <ChevronRight size={16} color={scheme.primary} />
+            </Interactive>
+          </View>
+
+          <View style={styles.tiles}>
+            <StatTile
+              icon={<CheckCircle2 size={14} color={status.success.solid} />}
+              label="Tasks completed"
+              value={String(weekCompleted)}
+              caption={`of ~${weekPlanned} planned`}
+              progress={(weekCompleted / weekPlanned) * 100}
+              tone="success"
+              onPress={() => router.push('/reflect')}
+            />
+            <StatTile
+              icon={<Clock size={14} color={scheme.primary} />}
+              label="Focus time"
+              value={formatEstimate(focusMinutes)}
+              caption="logged against closed work"
+              progress={Math.min(100, (focusMinutes / 600) * 100)}
+              onPress={() => router.push('/reflect')}
+            />
+          </View>
+
+          <View style={styles.legend}>
+            <Chip label={`${data.tasks.filter((t) => t.status === 'open').length} open`} size="sm" />
+            <Chip
+              label={`${data.tasks.filter((t) => t.status === 'done').length} done`}
+              size="sm"
+              tone="success"
+            />
+            <Chip label={`${data.inbox.length} in inbox`} size="sm" tone={data.inbox.length ? 'info' : 'neutral'} />
+          </View>
         </View>
       </ScrollView>
+
+      <NotificationsDrawer visible={notifOpen} onClose={() => setNotifOpen(false)} />
+      <StreakDrawer visible={streakOpen} onClose={() => setStreakOpen(false)} />
     </View>
   );
 }
 
-function Gauge({
-  label,
-  value,
-  tone,
-  hint,
-}: {
-  label: string;
-  value: number;
-  tone: 'warning' | 'success';
-  hint: string;
-}) {
-  return (
-    <View style={styles.gauge}>
-      <View style={styles.gaugeRow}>
-        <Txt variant="bodySm" muted style={styles.gaugeLabel}>
-          {label}
-        </Txt>
-        <ProgressBar value={value} tone={tone} style={{ flex: 1 }} />
-        <Txt variant="label" style={styles.gaugeValue}>
-          {value}%
-        </Txt>
-      </View>
-      <Txt variant="caption" muted>
-        {hint}
-      </Txt>
-    </View>
-  );
-}
-
-function TaskRow({ task, onPress }: { task: Task; onPress: () => void }) {
-  const scheme = useScheme();
-  const next = task.subtasks.find((s) => !s.done);
-  const doneCount = task.subtasks.filter((s) => s.done).length;
-
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={task.title}>
-      <Card style={styles.taskCard}>
-        <View style={styles.taskHead}>
-          <Checkbox checked={task.done} onToggle={() => {}} accessibilityLabel={`Complete ${task.title}`} />
-          <Txt variant="h4" style={{ flex: 1 }} numberOfLines={2}>
-            {task.title}
-          </Txt>
-        </View>
-
-        {next ? (
-          <View style={[styles.subPreview, { backgroundColor: scheme.surfaceAlt }]}>
-            <ChevronRight size={14} color={scheme.textMuted} />
-            <Txt variant="bodySm" muted numberOfLines={1} style={{ flex: 1 }}>
-              {next.title}
-            </Txt>
-          </View>
-        ) : null}
-
-        <View style={styles.taskMeta}>
-          {task.tag ? <Chip label={task.tag} tone="success" size="sm" /> : null}
-          <Chip label={task.due} size="sm" />
-          <Chip label={task.estimate} size="sm" />
-          {task.subtasks.length > 0 ? (
-            <Chip label={`${doneCount}/${task.subtasks.length} subtasks`} size="sm" />
-          ) : null}
-          <Txt variant="caption" color={status.warning.fg}>
-            +{task.loadDelta}% load
-          </Txt>
-        </View>
-      </Card>
-    </Pressable>
-  );
+function greeting(now: Date): string {
+  const h = now.getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 const styles = StyleSheet.create({
-  header: {
-    backgroundColor: brand.forest,
-    paddingHorizontal: space[5],
-    paddingBottom: space[8],
-    borderBottomLeftRadius: space[7],
-    borderBottomRightRadius: space[7],
-  },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   greetRow: { flexDirection: 'row', alignItems: 'center', marginTop: space[5] },
   greetText: { flex: 1, gap: space[0.5] },
-  mascot: { width: 92, height: 92 },
 
   body: { paddingHorizontal: space[4], marginTop: -space[6], gap: space[3] },
   stateCard: { gap: space[3] },
@@ -228,11 +303,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  gauge: { gap: space[1] },
-  gaugeRow: { flexDirection: 'row', alignItems: 'center', gap: space[2.5] },
-  gaugeLabel: { width: 60 },
-  gaugeValue: { width: 40, textAlign: 'right' },
-
   streak: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -241,6 +311,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
   },
+  semibold: { fontWeight: '600' },
 
   sectionHead: {
     flexDirection: 'row',
@@ -248,17 +319,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: space[2],
   },
-  viewAll: { flexDirection: 'row', alignItems: 'center', gap: space[0.5] },
+  viewAll: { flexDirection: 'row', alignItems: 'center', gap: space[0.5], paddingVertical: space[1] },
 
-  taskCard: { gap: space[2.5] },
-  taskHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2.5] },
-  subPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[1],
-    paddingVertical: space[1.5],
-    paddingHorizontal: space[2.5],
-    borderRadius: radius.pill,
-  },
-  taskMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[1.5] },
+  tiles: { flexDirection: 'row', gap: space[3] },
+  legend: { flexDirection: 'row', gap: space[1.5], marginTop: space[1], flexWrap: 'wrap' },
 });

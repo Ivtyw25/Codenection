@@ -13,10 +13,6 @@
  * 1440px shell) it does not transfer to React Native and is intentionally
  * absent — those are viewport artifacts, not design decisions.
  */
-import { useColorScheme } from 'react-native';
-
-import { light, dark, type Scheme } from './colors';
-
 export { brand, pairing, status, n, light, dark } from './colors';
 export type { Scheme, StatusName } from './colors';
 
@@ -37,17 +33,24 @@ export {
 } from './layout';
 export type { RadiusName, ElevationName } from './layout';
 
-export { duration, easing, timing, useMotion, SHIMMER_DURATION } from './motion';
+export {
+  duration,
+  easing,
+  timing,
+  useMotion,
+  ReduceMotionProvider,
+  SHIMMER_DURATION,
+} from './motion';
 export type { MotionName } from './motion';
 
-/**
- * Resolves the active colour scheme.
- *
- * The teardown confirms a real dark theme ships — "116 CSS custom properties
- * with paired light/dark values" — so dark is a first-class mode here, not an
- * afterthought. Primary and secondary hold constant across both; only the
- * accent swaps (amber → near-white blush).
- */
-export function useScheme(): Scheme {
-  return useColorScheme() === 'dark' ? dark : light;
-}
+export {
+  resolveState,
+  stateLayer,
+  stateShadow,
+  stateBorder,
+  useInteraction,
+} from './states';
+export type { InteractionState, StateFlags } from './states';
+
+export { ThemeOverrideProvider, useScheme, useThemePreference } from './ThemeContext';
+export type { ThemePreference } from './ThemeContext';

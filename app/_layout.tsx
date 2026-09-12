@@ -1,38 +1,32 @@
 import { useEffect } from 'react';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
-// Imported by weight-specific subpath, NOT from the package barrel. The barrel
-// pulls all 18 faces (nine weights x roman/italic) into the bundle; these four
-// are the only ones the type scale uses. The teardown called dropping the
-// unused weights "free bytes" — this is where that saving is actually taken.
-import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
-import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
-import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
-import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 
-import { useScheme } from '@/theme';
+import { ErrorState, Skeleton, ToastHost, Txt } from '@/components/ui';
+import { AppProvider, useApp } from '@/store/AppStore';
+import { ReduceMotionProvider, ThemeOverrideProvider, space, useScheme } from '@/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* already hidden — not fatal */
 });
 
 export default function RootLayout() {
-  const scheme = useScheme();
-
   /**
-   * Only the four weights the design system actually uses. The teardown found
-   * the source site shipped seven and used four; dropping 100/200/300 is
-   * "free bytes" with no visual consequence.
+   * Neue Leiden — the source system's own face, self-hosted here as it is
+   * there. Four weights of the seven it ships: the teardown found only
+   * 400/500/600/700 are ever used, and "dropping 100/200/300 from the font
+   * payload is free bytes". 176 KB of faces becomes 100 KB.
    */
   const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    'NeueLeiden-Regular': require('../assets/fonts/NeueLeiden-Regular.ttf'),
+    'NeueLeiden-Medium': require('../assets/fonts/NeueLeiden-Medium.ttf'),
+    'NeueLeiden-SemiBold': require('../assets/fonts/NeueLeiden-SemiBold.ttf'),
+    'NeueLeiden-Bold': require('../assets/fonts/NeueLeiden-Bold.ttf'),
   });
 
   useEffect(() => {
@@ -46,30 +40,108 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="auto" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: scheme.ground },
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="shop" options={{ animation: 'slide_from_bottom' }} />
-          <Stack.Screen
-            name="capture"
-            options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="review"
-            options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="task/[id]"
-            options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
-          />
-        </Stack>
+        <AppProvider>
+          <ThemedShell />
+        </AppProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/**
+ * Bridges stored settings into the theme layer, then gates every route behind
+ * the bootstrap read.
+ *
+ * The gate is the reason loading and error are real states in this app rather
+ * than states the design system merely owns components for: no screen below
+ * here has to handle a null world, because none of them mount until there is
+ * one — or until the user has been told why there isn't.
+ */
+function ThemedShell() {
+  const { state, reload } = useApp();
+
+  return (
+    <ThemeOverrideProvider value={state.data?.settings.theme ?? null}>
+      <ReduceMotionProvider value={state.data?.settings.reduceMotion ?? false}>
+        <StatusBar style="auto" />
+        {state.boot.status === 'error' ? (
+          <BootError message={state.boot.error ?? 'Something went wrong.'} onRetry={reload} />
+        ) : state.data == null ? (
+          <BootSkeleton />
+        ) : (
+          <>
+            <Routes />
+            <ToastHost />
+          </>
+        )}
+      </ReduceMotionProvider>
+    </ThemeOverrideProvider>
+  );
+}
+
+function Routes() {
+  const scheme = useScheme();
+
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: scheme.ground },
+        animation: 'slide_from_right',
+      }}
+    >
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="shop" options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen
+        name="capture"
+        options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="review"
+        options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="task/[id]"
+        options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
+      />
+    </Stack>
+  );
+}
+
+/** The shape of Home, before Home has anything to show. */
+function BootSkeleton() {
+  const scheme = useScheme();
+
+  return (
+    <View style={{ flex: 1, backgroundColor: scheme.ground }}>
+      <View style={{ height: 220, backgroundColor: scheme.primary }} />
+      <View style={{ padding: space[4], gap: space[3], marginTop: -space[6] }}>
+        <Skeleton height={148} radius="lg" />
+        <Skeleton height={56} radius="lg" />
+        <Skeleton height={20} width="45%" />
+        <Skeleton height={116} radius="lg" />
+        <Skeleton height={116} radius="lg" />
+      </View>
+    </View>
+  );
+}
+
+function BootError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const scheme = useScheme();
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: scheme.ground,
+        justifyContent: 'center',
+        paddingHorizontal: space[4],
+      }}
+    >
+      <ErrorState title="Pip is out of reach" body={message} onRetry={onRetry} />
+      <Txt variant="caption" muted center>
+        Nothing you have done has been lost.
+      </Txt>
+    </View>
   );
 }

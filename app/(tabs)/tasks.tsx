@@ -1,146 +1,253 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Code,
-  FileText,
   Plus,
+  RotateCcw,
   SlidersHorizontal,
 } from 'lucide-react-native';
 
-import { Card, Checkbox, Chip, EmptyState, SegmentedTabs, Txt } from '@/components/ui';
-import { RANGE_FILTERS, TASKS, TASK_CONTEXTS, WEEK } from '@/data/mock';
-import { brand, n, radius, space, status, useScheme } from '@/theme';
-import type { Task, TaskContext } from '@/types';
+import { FilterDrawer, ForestHeader, TaskCard, onForest } from '@/components/app';
+import { EmptyState, IconButton, Interactive, SegmentedTabs, Txt } from '@/components/ui';
+import {
+  contextLabel,
+  dayInitial,
+  formatDayPill,
+  formatFullDate,
+  isoDate,
+  startOfDay,
+  weekOf,
+} from '@/data/format';
+import { useApp } from '@/store/AppStore';
+import { useContextCounts, useNow, useTaskList } from '@/store/selectors';
+import { brand, radius, space, status, useScheme } from '@/theme';
+import type { ContextFilter, RangeFilter } from '@/types';
 
-const ICONS: Record<string, typeof Code> = { CalendarDays, Code, FileText };
+const RANGES: { value: RangeFilter; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'tomorrow', label: 'Tomorrow' },
+  { value: 'week', label: 'This Week' },
+  { value: 'all', label: 'Everything' },
+];
 
+const CONTEXTS: ContextFilter[] = ['all', '@academics', '@club', '@internship', '@errands', '@personal'];
+
+/**
+ * Today's Manifest — SCR-11.
+ *
+ * The frame's date strip is drawn against Oct 23–29 2023 and its filter chips
+ * are decorative. Here the strip is the week around a live anchor date, every
+ * chip writes to the shared `TaskQuery`, and the list below is the result of
+ * running that query — so the header and the list cannot disagree.
+ */
 export default function TasksScreen() {
   const scheme = useScheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [range, setRange] = useState('today');
-  const [context, setContext] = useState<TaskContext | 'all'>('all');
+  const now = useNow();
 
-  const visible = useMemo(
-    () => (context === 'all' ? TASKS : TASKS.filter((t) => t.context === context)),
-    [context],
+  const { state, setQuery, toggleTask, toggleSubtask, toast } = useApp();
+  const tasks = useTaskList();
+  const counts = useContextCounts();
+
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  const anchor = useMemo(() => startOfDay(state.query.anchor), [state.query.anchor]);
+  const week = useMemo(() => weekOf(anchor), [anchor]);
+
+  const shiftDay = useCallback(
+    (delta: number) => {
+      const next = new Date(anchor);
+      next.setDate(next.getDate() + delta);
+      Haptics.selectionAsync().catch(() => {});
+      setQuery({ anchor: isoDate(next) });
+    },
+    [anchor, setQuery],
   );
+
+  const completeTask = useCallback(
+    (id: string, title: string, wasDone: boolean) => {
+      Haptics.impactAsync(
+        wasDone ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
+      ).catch(() => {});
+      toggleTask(id);
+      if (!wasDone) {
+        toast(`“${title.slice(0, 32)}${title.length > 32 ? '…' : ''}” done`, 'success', {
+          label: 'Undo',
+          run: () => toggleTask(id),
+        });
+      }
+    },
+    [toggleTask, toast],
+  );
+
+  const filtered = state.query.context !== 'all' || state.query.range !== 'today';
 
   return (
     <View style={{ flex: 1, backgroundColor: scheme.ground }}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: space[10] }}
+        contentContainerStyle={{ paddingBottom: space[24] }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Forest header ─────────────────────────────────────────────── */}
-        <View style={[styles.header, { paddingTop: insets.top + space[2] }]}>
+        <ForestHeader pad={space[5]}>
           <View style={styles.headerTop}>
             <View style={styles.dateNav}>
-              <ChevronLeft size={16} color="rgba(255,255,255,0.7)" />
-              <CalendarDays size={14} color={n[0]} />
-              <Txt variant="caption" color={n[0]}>
-                TODAY · OCT 25
+              <Interactive
+                accessibilityRole="button"
+                accessibilityLabel="Previous day"
+                onPress={() => shiftDay(-1)}
+                radius="pill"
+                hitSlop={10}
+              >
+                <ChevronLeft size={16} color={onForest.secondary} />
+              </Interactive>
+
+              <CalendarDays size={14} color={onForest.primary} />
+              <Txt variant="caption" color={onForest.primary}>
+                {formatDayPill(anchor, now)}
               </Txt>
-              <ChevronRight size={16} color="rgba(255,255,255,0.7)" />
+
+              <Interactive
+                accessibilityRole="button"
+                accessibilityLabel="Next day"
+                onPress={() => shiftDay(1)}
+                radius="pill"
+                hitSlop={10}
+              >
+                <ChevronRight size={16} color={onForest.secondary} />
+              </Interactive>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Filter options"
-              style={styles.iconButton}
-            >
-              <SlidersHorizontal size={17} color={n[0]} />
-            </Pressable>
+
+            <IconButton
+              icon={<SlidersHorizontal size={17} color={onForest.primary} />}
+              accessibilityLabel="Filter and sort"
+              tone="onDark"
+              size={34}
+              badge={filtered}
+              onPress={() => setFilterOpen(true)}
+            />
           </View>
 
-          <Txt variant="h1" color={n[0]} style={{ marginTop: space[3] }}>
-            Today&apos;s Manifest
+          <Txt variant="h1" color={onForest.primary} style={{ marginTop: space[3] }}>
+            {isoDate(anchor) === isoDate(now) ? "Today's Manifest" : 'Manifest'}
           </Txt>
 
-          {/* Week strip */}
+          {/* Week strip — the seven days around the anchor. */}
           <View style={styles.week}>
-            {WEEK.map((d, i) => (
-              <Pressable
-                key={`${d.dow}-${d.day}`}
-                accessibilityRole="button"
-                accessibilityLabel={`October ${d.day}`}
-                accessibilityState={{ selected: !!d.today }}
-                style={[styles.day, d.today && { backgroundColor: n[0] }]}
-              >
-                <Txt
-                  variant="caption"
-                  color={d.today ? scheme.textMuted : 'rgba(255,255,255,0.55)'}
-                >
-                  {d.dow}
-                </Txt>
-                <Txt variant="h4" color={d.today ? brand.forest : n[0]}>
-                  {d.day}
-                </Txt>
-                {d.today ? <View style={styles.todayDot} /> : null}
-              </Pressable>
-            ))}
-          </View>
+            {week.map((day) => {
+              const selected = isoDate(day) === isoDate(anchor);
+              const today = isoDate(day) === isoDate(now);
 
-          {/* Range filters */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.ranges}
-          >
-            {RANGE_FILTERS.map((r) => {
-              const on = r.value === range;
               return (
-                <Pressable
-                  key={r.value}
-                  onPress={() => setRange(r.value)}
+                <Interactive
+                  key={day.toISOString()}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  style={[
-                    styles.range,
-                    { backgroundColor: on ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.10)' },
-                  ]}
+                  accessibilityLabel={day.toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                  selected={selected}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setQuery({ anchor: isoDate(day) });
+                  }}
+                  radius="md"
+                  style={[styles.day, selected && { backgroundColor: onForest.primary }]}
                 >
-                  <Txt variant="caption" color={on ? n[0] : 'rgba(255,255,255,0.66)'}>
-                    {r.label}
+                  <Txt variant="caption" color={selected ? scheme.textMuted : onForest.muted}>
+                    {dayInitial(day)}
                   </Txt>
-                </Pressable>
+                  <Txt variant="h4" color={selected ? brand.forest : onForest.primary}>
+                    {day.getDate()}
+                  </Txt>
+                  <View
+                    style={[
+                      styles.todayDot,
+                      { backgroundColor: today ? brand.lime : 'transparent' },
+                    ]}
+                  />
+                </Interactive>
               );
             })}
-          </ScrollView>
-        </View>
+          </View>
 
-        {/* ── Body ──────────────────────────────────────────────────────── */}
+          <View style={{ marginTop: space[4] }}>
+            <SegmentedTabs
+              options={RANGES}
+              value={state.query.range}
+              onChange={(range) => setQuery({ range })}
+              onDark
+            />
+          </View>
+        </ForestHeader>
+
         <View style={styles.body}>
           <View style={styles.showing}>
             <Txt variant="bodySm" muted>
-              Showing: Oct 25, 2023
+              Showing: {formatFullDate(anchor)}
             </Txt>
-            <Pressable accessibilityRole="button" style={styles.jump}>
-              <Txt variant="label" color={status.success.fg}>
-                Jump to Date
-              </Txt>
-              <ChevronRight size={15} color={status.success.fg} />
-            </Pressable>
+
+            {isoDate(anchor) !== isoDate(now) ? (
+              <Interactive
+                accessibilityRole="button"
+                accessibilityLabel="Jump to today"
+                onPress={() => setQuery({ anchor: isoDate(now) })}
+                radius="pill"
+                style={styles.jump}
+              >
+                <RotateCcw size={13} color={status.success.fg} />
+                <Txt variant="label" color={status.success.fg}>
+                  Jump to today
+                </Txt>
+              </Interactive>
+            ) : null}
           </View>
 
-          <SegmentedTabs options={TASK_CONTEXTS} value={context} onChange={setContext} />
+          <SegmentedTabs
+            options={CONTEXTS.map((value) => ({
+              value,
+              label: value === 'all' ? 'All' : contextLabel(value),
+              count: counts[value] ?? 0,
+              disabled: value !== 'all' && (counts[value] ?? 0) === 0,
+            }))}
+            value={state.query.context}
+            onChange={(context) => setQuery({ context })}
+          />
 
           <View style={{ gap: space[3], marginTop: space[3] }}>
-            {visible.map((task) => (
-              <TaskCard key={task.id} task={task} onPress={() => router.push(`/task/${task.id}`)} />
+            {tasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                now={now}
+                onPress={() => router.push(`/task/${task.id}`)}
+                onToggle={() => completeTask(task.id, task.title, task.status === 'done')}
+                onToggleSubtask={(subId) => {
+                  Haptics.selectionAsync().catch(() => {});
+                  toggleSubtask(task.id, subId);
+                }}
+              />
             ))}
           </View>
 
-          {visible.length === 0 ? (
+          {tasks.length === 0 ? (
             <EmptyState
               icon={<CalendarDays size={26} color={scheme.textMuted} />}
-              title="Nothing in this context"
-              body="No tasks match this filter for Oct 25."
-              action={{ label: 'Show all', onPress: () => setContext('all') }}
+              title={filtered ? 'Nothing matches this filter' : 'Nothing scheduled'}
+              body={
+                filtered
+                  ? `No tasks for ${formatFullDate(anchor)} in this context.`
+                  : `${formatFullDate(anchor)} is clear. Capture something, or enjoy it.`
+              }
+              action={
+                filtered
+                  ? { label: 'Clear filters', onPress: () => setQuery({ context: 'all', range: 'all' }) }
+                  : { label: 'Capture a thought', onPress: () => router.push('/capture') }
+              }
             />
           ) : null}
         </View>
@@ -154,75 +261,22 @@ export default function TasksScreen() {
         Pip reading won (3 frames to 1), which leaves capture with no entry
         point, so it gets a FAB on the screen its output lands in.
       */}
-      <Pressable
-        onPress={() => router.push('/capture')}
+      <Interactive
         accessibilityRole="button"
         accessibilityLabel="Capture a new thought"
-        style={[
-          styles.fab,
-          {
-            backgroundColor: scheme.primary,
-            bottom: space[5],
-            shadowColor: brand.lime,
-          },
-        ]}
+        onPress={() => router.push('/capture')}
+        radius="pill"
+        style={[styles.fab, { backgroundColor: scheme.primary, shadowColor: brand.lime }]}
       >
         <Plus size={24} color={scheme.onPrimary} />
-      </Pressable>
+      </Interactive>
+
+      <FilterDrawer visible={filterOpen} onClose={() => setFilterOpen(false)} />
     </View>
   );
 }
 
-function TaskCard({ task, onPress }: { task: Task; onPress: () => void }) {
-  const scheme = useScheme();
-  const Icon = ICONS[task.icon] ?? FileText;
-  const next = task.subtasks.find((s) => !s.done);
-  const doneCount = task.subtasks.filter((s) => s.done).length;
-
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={task.title}>
-      <Card style={{ gap: space[2.5] }}>
-        <View style={styles.cardHead}>
-          <Checkbox checked={task.done} onToggle={() => {}} accessibilityLabel={`Complete ${task.title}`} />
-          <View style={[styles.typeIcon, { backgroundColor: scheme.surfaceAlt }]}>
-            <Icon size={15} color={scheme.primary} />
-          </View>
-          <Txt variant="h4" style={{ flex: 1 }} numberOfLines={2}>
-            {task.title}
-          </Txt>
-        </View>
-
-        {next ? (
-          <View style={[styles.subPreview, { backgroundColor: scheme.surfaceAlt }]}>
-            <ChevronRight size={14} color={scheme.textMuted} />
-            <Txt variant="bodySm" muted numberOfLines={1} style={{ flex: 1 }}>
-              {next.title}
-            </Txt>
-          </View>
-        ) : null}
-
-        <View style={styles.meta}>
-          <Chip label={task.due} size="sm" />
-          <Chip label={task.estimate} size="sm" />
-          {task.tag ? <Chip label={task.tag} tone="success" size="sm" /> : null}
-          <Chip label={`${doneCount}/${task.subtasks.length} subtasks`} size="sm" />
-          <Txt variant="caption" color={status.warning.fg}>
-            +{task.loadDelta}% load
-          </Txt>
-        </View>
-      </Card>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  header: {
-    backgroundColor: brand.forest,
-    paddingHorizontal: space[5],
-    paddingBottom: space[5],
-    borderBottomLeftRadius: space[7],
-    borderBottomRightRadius: space[7],
-  },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   dateNav: {
     flexDirection: 'row',
@@ -231,15 +285,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[2.5],
     paddingVertical: space[1],
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: onForest.fill,
   },
 
   week: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space[4] },
@@ -250,45 +296,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[0.5],
   },
-  todayDot: {
-    width: 4,
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: brand.lime,
-  },
-
-  ranges: { gap: space[2], paddingTop: space[4] },
-  range: {
-    paddingHorizontal: space[3],
-    paddingVertical: space[1.5],
-    borderRadius: radius.pill,
-  },
+  todayDot: { width: 4, height: 4, borderRadius: radius.pill },
 
   body: { paddingHorizontal: space[4], paddingTop: space[4], gap: space[3] },
-  showing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  jump: { flexDirection: 'row', alignItems: 'center', gap: space[0.5] },
-
-  cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
-  typeIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  subPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[1],
-    paddingVertical: space[1.5],
-    paddingHorizontal: space[2.5],
-    borderRadius: radius.pill,
-  },
-  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[1.5] },
+  showing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24 },
+  jump: { flexDirection: 'row', alignItems: 'center', gap: space[1], paddingVertical: space[1] },
 
   fab: {
     position: 'absolute',
     right: space[4],
+    bottom: space[5],
     width: 56,
     height: 56,
     borderRadius: radius.pill,

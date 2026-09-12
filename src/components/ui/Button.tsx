@@ -1,21 +1,49 @@
-import React, { ReactNode } from 'react';
-import { TouchableOpacity, StyleSheet, View } from 'react-native';
-import { useScheme, radius, space, CONTROL_HEIGHT, MIN_TAP_TARGET, status, n } from '@/theme';
-import { Txt } from './Txt';
+import React, { type ReactNode } from 'react';
+import { StyleSheet, View } from 'react-native';
+
+import {
+  CONTROL_HEIGHT,
+  MIN_TAP_TARGET,
+  n,
+  radius,
+  space,
+  status,
+  useScheme,
+  type InteractionState,
+} from '@/theme';
+import { Interactive } from './Interactive';
 import { Spinner } from './Spinner';
+import { Txt } from './Txt';
+
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'lime';
 
 export interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  variant?: ButtonVariant;
   size?: 'sm' | 'md';
   label: string;
   onPress?: () => void;
   icon?: ReactNode;
   iconPosition?: 'left' | 'right';
   fullWidth?: boolean;
+  /** Swaps the label for a spinner and blocks input. */
   loading?: boolean;
   disabled?: boolean;
+  /**
+   * Why the button is disabled, announced to screen readers and available to
+   * callers for a helper line. A disabled control with no stated reason is the
+   * most common accessibility failure in a design system.
+   */
+  disabledReason?: string;
+  accessibilityHint?: string;
 }
 
+/**
+ * The system's signature control — a full pill, 583 uses of `9999px` in the
+ * source. Six states: default, hover, pressed, focused, loading, disabled.
+ *
+ * The three surfaces it can sit on (forest header, white card, lime accent)
+ * are why `Interactive`'s overlay is alpha rather than a second palette.
+ */
 export function Button({
   variant = 'primary',
   size = 'md',
@@ -26,88 +54,91 @@ export function Button({
   fullWidth,
   loading,
   disabled,
+  disabledReason,
+  accessibilityHint,
 }: ButtonProps) {
   const scheme = useScheme();
-  
   const height = size === 'md' ? CONTROL_HEIGHT : 40;
-  
-  let backgroundColor: string | undefined = undefined;
-  let borderColor: string | undefined = undefined;
-  let borderWidth = 0;
-  let textColor = scheme.onPrimary;
-  
-  if (variant === 'primary') {
-    backgroundColor = scheme.primary;
-    textColor = scheme.onPrimary;
-  } else if (variant === 'secondary') {
-    backgroundColor = scheme.surfaceAlt;
-    borderColor = scheme.border;
-    borderWidth = 1;
-    textColor = scheme.text;
-  } else if (variant === 'ghost') {
-    backgroundColor = undefined;
-    textColor = scheme.primary;
-  } else if (variant === 'danger') {
-    backgroundColor = status.danger.solid;
-    textColor = n[0];
-  }
 
-  const minTarget = Math.max(height, MIN_TAP_TARGET);
-  const minW = Math.max(height, MIN_TAP_TARGET);
+  const skin = surfaceFor(variant, scheme);
 
   return (
-    <TouchableOpacity
+    <Interactive
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ busy: loading, disabled: disabled || loading }}
-      activeOpacity={0.8}
+      accessibilityHint={disabled && disabledReason ? disabledReason : accessibilityHint}
       onPress={onPress}
-      disabled={disabled || loading}
+      loading={loading}
+      disabled={disabled}
+      radius="pill"
       style={[
         styles.base,
         {
           height,
-          minHeight: minTarget,
-          minWidth: minW,
+          minHeight: Math.max(height, MIN_TAP_TARGET),
+          minWidth: Math.max(height, MIN_TAP_TARGET),
           borderRadius: radius.pill,
-          backgroundColor,
-          borderColor,
-          borderWidth,
+          backgroundColor: skin.bg,
+          borderColor: skin.border,
+          borderWidth: skin.border ? 1 : 0,
+          paddingHorizontal: size === 'md' ? space[5] : space[4],
         },
         fullWidth && styles.fullWidth,
-        (disabled || loading) && styles.disabled,
       ]}
     >
-      {loading ? (
-        <Spinner size={20} color={textColor} />
-      ) : (
-        <View style={styles.content}>
-          {icon && iconPosition === 'left' && <View style={[styles.iconLeft, { marginRight: space[2] }]}>{icon}</View>}
-          <Txt variant="label" color={textColor}>{label}</Txt>
-          {icon && iconPosition === 'right' && <View style={[styles.iconRight, { marginLeft: space[2] }]}>{icon}</View>}
-        </View>
-      )}
-    </TouchableOpacity>
+      {(state: InteractionState) =>
+        loading ? (
+          <View style={styles.content}>
+            <Spinner size={18} color={skin.fg} />
+            <Txt variant="label" color={skin.fg} style={{ marginLeft: space[2] }}>
+              {label}
+            </Txt>
+          </View>
+        ) : (
+          <View style={styles.content}>
+            {icon && iconPosition === 'left' ? (
+              <View style={{ marginRight: space[2] }}>{icon}</View>
+            ) : null}
+            <Txt
+              variant="label"
+              color={skin.fg}
+              // The focused state is carried by the lime ring, but a ring alone
+              // is invisible to anyone who can't see the glow colour shift.
+              style={state === 'focused' ? styles.focusedLabel : undefined}
+            >
+              {label}
+            </Txt>
+            {icon && iconPosition === 'right' ? (
+              <View style={{ marginLeft: space[2] }}>{icon}</View>
+            ) : null}
+          </View>
+        )
+      }
+    </Interactive>
   );
 }
 
+function surfaceFor(variant: ButtonVariant, scheme: ReturnType<typeof useScheme>) {
+  switch (variant) {
+    case 'primary':
+      // 11.35:1 — AAA, the teardown's verified pairing.
+      return { bg: scheme.primary, fg: scheme.onPrimary, border: undefined as string | undefined };
+    case 'lime':
+      // 7.47:1 — AAA. The hero pairing, reserved for the one action per screen
+      // that the whole screen exists to produce.
+      return { bg: scheme.secondary, fg: scheme.onSecondary, border: undefined };
+    case 'secondary':
+      return { bg: scheme.surfaceAlt, fg: scheme.text, border: scheme.border };
+    case 'ghost':
+      return { bg: 'transparent', fg: scheme.primary, border: undefined };
+    case 'danger':
+      return { bg: status.danger.solid, fg: n[0], border: undefined };
+  }
+}
+
 const styles = StyleSheet.create({
-  base: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  fullWidth: {
-    width: '100%',
-  },
-  disabled: {
-    opacity: 0.6,
-  },
-  content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconLeft: {},
-  iconRight: {},
+  base: { justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  fullWidth: { width: '100%' },
+  content: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  focusedLabel: { textDecorationLine: 'underline' },
 });

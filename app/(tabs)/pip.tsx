@@ -1,29 +1,42 @@
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Coffee, Moon, Settings, ShoppingBag, Star, Users } from 'lucide-react-native';
-import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
-import { Card, ProgressBar, Txt } from '@/components/ui';
-import { PIP_BASE } from '@/data/shop';
-import { PIP } from '@/data/mock';
-import { brand, n, radius, space, status, useScheme } from '@/theme';
+import { ForestHeader, Gauge, PipMascot, onForest } from '@/components/app';
+import { Card, Chip, Drawer, EmptyState, IconButton, Interactive, Txt } from '@/components/ui';
+import { useApp } from '@/store/AppStore';
+import { useCapacity, usePipState, useStreak } from '@/store/selectors';
+import { brand, radius, space, status, useScheme } from '@/theme';
 
 /** Diameter of the ambient glow behind the mascot. */
 const GLOW = 300;
 
 /**
- * Pip — the mascot tab.
+ * Pip — SCR-12.
  *
- * The dark stage runs to the top of the screen and the content sheet rides over
- * it, so the header keeps a fixed dark palette in both themes; only the sheet
- * below responds to the colour scheme.
+ * The dark stage runs to the top of the screen and the content sheet rides
+ * over it, so the stage keeps a fixed dark palette in both themes; only the
+ * sheet below responds to the colour scheme.
+ *
+ * Both drivers are the same derived capacity Home shows, rendered in the
+ * fuller `block` form. The mascot wears whatever the Shop sold.
  */
 export default function PipScreen() {
   const scheme = useScheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { capacity, level, sparks, state, streakDays, streakGoal, vitals } = PIP;
+
+  const { data, patchSettings, equip, toast } = useApp();
+  const capacity = useCapacity();
+  const pip = usePipState();
+  const streak = useStreak();
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+
+  const owned = data.shop.filter((item) => data.pip.owned.includes(item.id));
 
   return (
     <View style={{ flex: 1, backgroundColor: brand.forest }}>
@@ -31,79 +44,68 @@ export default function PipScreen() {
         contentContainerStyle={{ paddingBottom: space[10] }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Mascot stage ──────────────────────────────────────────────── */}
-        <View style={[styles.stage, { paddingTop: insets.top + space[2] }]}>
+        <ForestHeader flat pad={space[6]} style={{ paddingTop: insets.top + space[2] }}>
           <View style={styles.topBar}>
             <View style={styles.brandRow}>
-              <Txt variant="h3" color={n[0]}>
+              <Txt variant="h3" color={onForest.primary}>
                 pip
               </Txt>
-              <View style={styles.levelPill}>
-                <Txt variant="caption" color={n[0]}>
-                  Level {level}
+              <View style={[styles.levelPill, { backgroundColor: onForest.fillStrong }]}>
+                <Txt variant="caption" color={onForest.primary}>
+                  Level {data.pip.level}
                 </Txt>
               </View>
             </View>
 
             <View style={styles.topRight}>
-              <View style={styles.sparks}>
+              <Interactive
+                accessibilityRole="button"
+                accessibilityLabel={`${data.pip.sparks} Sparks. Open the shop.`}
+                onPress={() => router.push('/shop')}
+                radius="pill"
+                style={[styles.sparks, { backgroundColor: onForest.well }]}
+              >
                 <Star size={13} color={brand.amber} fill={brand.amber} />
                 <Txt variant="caption" color={brand.amber}>
-                  {sparks}
+                  {data.pip.sparks}
                 </Txt>
-              </View>
-              <Pressable
-                accessibilityRole="button"
+              </Interactive>
+
+              <IconButton
+                icon={<Settings size={17} color={onForest.primary} />}
                 accessibilityLabel="Settings"
-                style={styles.iconButton}
-              >
-                <Settings size={17} color={n[0]} />
-              </Pressable>
+                tone="onDark"
+                size={34}
+                onPress={() => setSettingsOpen(true)}
+              />
             </View>
           </View>
 
-          {/*
-            Ambient glow behind the mascot — decorative only.
-
-            A flat rgba circle reads as a hard-edged disc at this size, which is
-            not what the design shows. A real radial falloff needs an SVG
-            gradient; react-native-svg is already a dependency.
-          */}
-          <View style={styles.glow} pointerEvents="none">
-            <Svg width={GLOW} height={GLOW}>
-              <Defs>
-                <RadialGradient id="pipGlow" cx="50%" cy="50%" r="50%">
-                  <Stop offset="0%" stopColor={brand.lime} stopOpacity={0.22} />
-                  <Stop offset="55%" stopColor={brand.lime} stopOpacity={0.09} />
-                  <Stop offset="100%" stopColor={brand.lime} stopOpacity={0} />
-                </RadialGradient>
-              </Defs>
-              <Circle cx={GLOW / 2} cy={GLOW / 2} r={GLOW / 2} fill="url(#pipGlow)" />
-            </Svg>
+          <View style={styles.stage}>
+            <PipMascot size={176} glow={GLOW} state={pip.name} />
           </View>
-          <Image source={PIP_BASE} style={styles.mascot} resizeMode="contain" />
 
-          <Txt variant="bodySm" center color="rgba(255,255,255,0.78)" style={styles.blurb}>
-            {state.blurb}
+          <Txt variant="bodySm" center color={onForest.secondary} style={styles.blurb}>
+            {pip.blurb}
           </Txt>
 
-          <View style={styles.streak}>
-            <Txt variant="caption" color="rgba(255,255,255,0.72)">
+          <View style={[styles.streak, { backgroundColor: onForest.well }]}>
+            <Txt variant="caption" color={onForest.secondary}>
               Balance streak:
             </Txt>
             <View style={styles.dots}>
-              {Array.from({ length: streakGoal }, (_, i) => (
+              {Array.from({ length: streak.goal }, (_, i) => (
                 <View
                   key={i}
                   style={[
                     styles.dot,
-                    { backgroundColor: i < streakDays ? brand.lime : 'rgba(255,255,255,0.22)' },
+                    { backgroundColor: i < streak.days ? brand.lime : 'rgba(255,255,255,0.22)' },
                   ]}
                 />
               ))}
             </View>
             <Txt variant="caption" color={brand.lime}>
-              {streakDays}d
+              {streak.days}d
             </Txt>
           </View>
 
@@ -111,17 +113,17 @@ export default function PipScreen() {
             <StageAction
               icon={<ShoppingBag size={18} color={brand.amber} />}
               title="Cosmetic Shop"
-              sub="New skins & hats"
+              sub={owned.length > 0 ? `${owned.length} owned` : 'New skins & hats'}
               onPress={() => router.push('/shop')}
             />
             <StageAction
               icon={<Users size={18} color={brand.lime} />}
               title="Friend Pips"
-              sub="3 classmates sharing"
-              onPress={() => {}}
+              sub="Not connected yet"
+              onPress={() => setFriendsOpen(true)}
             />
           </View>
-        </View>
+        </ForestHeader>
 
         {/* ── Content sheet ─────────────────────────────────────────────── */}
         <View style={[styles.sheet, { backgroundColor: scheme.ground }]}>
@@ -136,17 +138,19 @@ export default function PipScreen() {
               </Txt>
             </View>
 
-            <Driver
+            <Gauge
               label="Workload Pressure"
               value={capacity.pressure}
-              tone="warning"
+              kind="pressure"
               hint={capacity.pressureNote}
+              size="block"
             />
-            <Driver
+            <Gauge
               label="Vitality Reserve"
               value={capacity.vitality}
-              tone="success"
+              kind="vitality"
               hint={capacity.vitalityNote}
+              size="block"
             />
           </Card>
 
@@ -154,28 +158,103 @@ export default function PipScreen() {
             Vitals &amp; Sub-stats
           </Txt>
           <View style={styles.vitals}>
-            {vitals.map((v) => (
-              <Card key={v.id} style={styles.vitalCard}>
+            {data.vitals.map((vital) => (
+              <Card key={vital.id} style={styles.vitalCard}>
                 <View style={styles.vitalTop}>
                   <View style={[styles.vitalIcon, { backgroundColor: scheme.surfaceAlt }]}>
-                    {v.icon === 'Moon' ? (
+                    {vital.id === 'sleep' ? (
                       <Moon size={16} color={scheme.primary} />
                     ) : (
                       <Coffee size={16} color={status.success.solid} />
                     )}
                   </View>
-                  <Txt variant="h4" color={v.icon === 'Moon' ? scheme.primary : status.success.fg}>
-                    {v.value}%
+                  <Txt
+                    variant="h4"
+                    color={vital.id === 'sleep' ? scheme.primary : status.success.fg}
+                  >
+                    {vital.value}%
                   </Txt>
                 </View>
                 <Txt variant="caption" muted>
-                  {v.label}
+                  {vital.label}
                 </Txt>
               </Card>
             ))}
           </View>
+
+          {/* Wardrobe — only appears once there is something in it. */}
+          {owned.length > 0 ? (
+            <>
+              <Txt variant="h3" style={{ marginTop: space[5] }}>
+                Wardrobe
+              </Txt>
+              <View style={styles.wardrobe}>
+                <Chip
+                  label="Default"
+                  selected={data.pip.equipped == null}
+                  onPress={() => {
+                    equip(null);
+                    toast('Back to Pip’s own face', 'neutral');
+                  }}
+                />
+                {owned.map((item) => (
+                  <Chip
+                    key={item.id}
+                    label={item.name.replace(' Skin', '')}
+                    selected={data.pip.equipped === item.id}
+                    onPress={() => {
+                      equip(item.id);
+                      toast(`${item.name} equipped`, 'success');
+                    }}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
         </View>
       </ScrollView>
+
+      {/* ── Settings ────────────────────────────────────────────────────── */}
+      <Drawer visible={settingsOpen} onClose={() => setSettingsOpen(false)} title="Pip settings" maxHeight="60%">
+        <Txt variant="caption" muted style={styles.eyebrow}>
+          APPEARANCE
+        </Txt>
+        <View style={styles.chipRow}>
+          {([null, 'light', 'dark'] as const).map((value) => (
+            <Chip
+              key={String(value)}
+              label={value === null ? 'Follow system' : value === 'light' ? 'Light' : 'Dark'}
+              selected={data.settings.theme === value}
+              onPress={() => patchSettings({ theme: value })}
+            />
+          ))}
+        </View>
+
+        <Txt variant="caption" muted style={styles.eyebrow}>
+          NUDGES
+        </Txt>
+        <View style={styles.chipRow}>
+          <Chip
+            label={data.settings.notificationsEnabled ? 'Nudges on' : 'Nudges off'}
+            selected={data.settings.notificationsEnabled}
+            onPress={() =>
+              patchSettings({ notificationsEnabled: !data.settings.notificationsEnabled })
+            }
+          />
+        </View>
+        <Txt variant="caption" muted style={{ marginTop: space[2] }}>
+          Pip nudges when something has slipped, never on a schedule.
+        </Txt>
+      </Drawer>
+
+      {/* ── Friends ─────────────────────────────────────────────────────── */}
+      <Drawer visible={friendsOpen} onClose={() => setFriendsOpen(false)} title="Friend Pips" maxHeight="55%">
+        <EmptyState
+          icon={<Users size={28} color={scheme.textMuted} />}
+          title="No friends connected"
+          body="The Pip tab links here, but the Figma file has no Friends frame — so rather than invent a social graph, this is the empty state until one exists."
+        />
+      </Drawer>
     </View>
   );
 }
@@ -192,68 +271,33 @@ function StageAction({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
+    <Interactive
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${sub}`}
-      style={styles.action}
+      onPress={onPress}
+      radius="lg"
+      style={[styles.action, { backgroundColor: onForest.fill }]}
     >
-      <View style={styles.actionIcon}>{icon}</View>
+      <View style={[styles.actionIcon, { backgroundColor: onForest.well }]}>{icon}</View>
       <View style={{ flex: 1 }}>
-        <Txt variant="label" color={n[0]}>
+        <Txt variant="label" color={onForest.primary}>
           {title}
         </Txt>
-        <Txt variant="caption" color="rgba(255,255,255,0.6)">
+        <Txt variant="caption" color={onForest.muted}>
           {sub}
         </Txt>
       </View>
-    </Pressable>
-  );
-}
-
-function Driver({
-  label,
-  value,
-  tone,
-  hint,
-}: {
-  label: string;
-  value: number;
-  tone: 'warning' | 'success';
-  hint: string;
-}) {
-  const scheme = useScheme();
-  const toneColor = tone === 'warning' ? status.warning.fg : status.success.fg;
-  return (
-    <View style={{ gap: space[1.5] }}>
-      <View style={styles.driverRow}>
-        <Txt variant="h4" style={{ flex: 1 }}>
-          {label}
-        </Txt>
-        <Txt variant="label" color={toneColor}>
-          {value}%
-        </Txt>
-        <Txt variant="label" color={scheme.textDisabled}>
-          {' / '}100
-        </Txt>
-      </View>
-      <ProgressBar value={value} tone={tone} />
-      <Txt variant="caption" muted>
-        {hint}
-      </Txt>
-    </View>
+    </Interactive>
   );
 }
 
 const styles = StyleSheet.create({
-  stage: { paddingHorizontal: space[5], paddingBottom: space[6] },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   levelPill: {
     paddingHorizontal: space[2.5],
     paddingVertical: space[1],
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   sparks: {
@@ -263,25 +307,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[2.5],
     paddingVertical: space[1],
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(0,0,0,0.32)',
-  },
-  iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.14)',
   },
 
-  glow: {
-    position: 'absolute',
-    alignSelf: 'center',
-    top: 90,
-    width: GLOW,
-    height: GLOW,
-  },
-  mascot: { width: 176, height: 176, alignSelf: 'center', marginTop: space[5] },
+  stage: { alignItems: 'center', marginTop: space[5] },
   blurb: { marginTop: space[4], paddingHorizontal: space[4] },
 
   streak: {
@@ -293,7 +321,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[3.5],
     paddingVertical: space[2],
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(0,0,0,0.28)',
   },
   dots: { flexDirection: 'row', gap: space[1] },
   dot: { width: 8, height: 8, borderRadius: radius.pill },
@@ -306,7 +333,6 @@ const styles = StyleSheet.create({
     gap: space[2],
     padding: space[3],
     borderRadius: radius.lg,
-    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   actionIcon: {
     width: 32,
@@ -314,7 +340,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.28)',
   },
 
   sheet: {
@@ -327,7 +352,6 @@ const styles = StyleSheet.create({
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardTitle: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   statusDot: { width: 9, height: 9, borderRadius: radius.pill },
-  driverRow: { flexDirection: 'row', alignItems: 'center' },
 
   vitals: { flexDirection: 'row', gap: space[2.5], marginTop: space[2.5] },
   vitalCard: { flex: 1, gap: space[2] },
@@ -339,4 +363,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  wardrobe: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[2.5] },
+  eyebrow: { letterSpacing: 1, marginTop: space[3], marginBottom: space[2] },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
 });

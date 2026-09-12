@@ -6,6 +6,7 @@
  * easings, adopted from the teardown as-is. No springs are defined in the
  * source system, so none are invented here.
  */
+import { createContext, useContext } from 'react';
 import { Easing, useReducedMotion, type WithTimingConfig } from 'react-native-reanimated';
 
 export const duration = {
@@ -39,6 +40,26 @@ export type MotionName = keyof typeof timing;
 const REDUCED: WithTimingConfig = { duration: duration.xs, easing: Easing.linear };
 
 /**
+ * In-app opt-in, on top of the OS setting.
+ *
+ * Like `ThemeOverrideProvider`, it takes its value as a prop rather than
+ * reading the store, so the design system stays free of app state. It can only
+ * ever reduce motion further — a user who has asked the OS for less motion
+ * never gets more of it back from an app preference.
+ */
+const ReduceMotionCtx = createContext(false);
+
+export function ReduceMotionProvider({
+  value,
+  children,
+}: {
+  value: boolean;
+  children: React.ReactNode;
+}) {
+  return <ReduceMotionCtx.Provider value={value}>{children}</ReduceMotionCtx.Provider>;
+}
+
+/**
  * Motion accessor that respects the OS reduced-motion setting.
  *
  * Reanimated already defaults to `ReduceMotion.System`, so a plain one-shot
@@ -48,7 +69,9 @@ const REDUCED: WithTimingConfig = { duration: duration.xs, easing: Easing.linear
  * starting any `withRepeat`.
  */
 export function useMotion() {
-  const reduced = useReducedMotion();
+  const os = useReducedMotion();
+  const preference = useContext(ReduceMotionCtx);
+  const reduced = os || preference;
 
   return {
     reduced,

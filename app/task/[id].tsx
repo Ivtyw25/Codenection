@@ -1,29 +1,73 @@
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import {
   CalendarDays,
+  Check,
   Download,
   ExternalLink,
   FileText,
   Leaf,
   MapPin,
   Plus,
+  Trash2,
   X,
 } from 'lucide-react-native';
 
-import { Checkbox, Chip, EmptyState, Sheet, Txt } from '@/components/ui';
-import { TASKS } from '@/data/mock';
+import {
+  Button,
+  Checkbox,
+  Chip,
+  ConfirmDialog,
+  EmptyState,
+  IconButton,
+  Input,
+  Interactive,
+  ProgressBar,
+  Sheet,
+  Txt,
+} from '@/components/ui';
+import { formatDue, formatEstimate, isOverdue } from '@/data/format';
+import { loadPercent, progress } from '@/data/derive';
+import { useApp } from '@/store/AppStore';
+import { useNow, useTask } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
 import type { Resource, SubTask } from '@/types';
 
-/** Task Detail — opens as a bottom sheet over the Manifest. */
+/**
+ * Task Detail — SCR-13. Opens as a bottom sheet over the Manifest.
+ *
+ * Everything on this sheet writes through to the store: sub-tasks tick, steps
+ * are added, the title is editable, the task can be completed or deleted. Close
+ * it and the Manifest behind has already moved.
+ */
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const scheme = useScheme();
+  const now = useNow();
 
-  const task = TASKS.find((t) => t.id === id);
-  const close = () => router.back();
+  const { toggleTask, toggleSubtask, addSubtask, patchTask, removeTask, toast } = useApp();
+  const task = useTask(id);
+
+  const [adding, setAdding] = useState(false);
+  const [newStep, setNewStep] = useState('');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const close = useCallback(() => router.back(), [router]);
+
+  const submitStep = useCallback(() => {
+    const title = newStep.trim();
+    if (!task || title.length < 2) return;
+    addSubtask(task.id, title);
+    setNewStep('');
+    setAdding(false);
+    Haptics.selectionAsync().catch(() => {});
+    toast('Step added', 'success');
+  }, [newStep, task, addSubtask, toast]);
 
   if (!task) {
     return (
@@ -38,59 +82,179 @@ export default function TaskDetailScreen() {
     );
   }
 
-  const doneCount = task.subtasks.filter((s) => s.done).length;
+  const { done, total, pct } = progress(task);
+  const complete = task.status === 'done';
+  const overdue = !complete && isOverdue(task.dueAt, now);
 
   return (
     <Sheet visible onClose={close} fullHeight>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* ── Head ──────────────────────────────────────────────────────── */}
         <View style={styles.head}>
           <Txt variant="caption" muted style={styles.eyebrow}>
             TASK DETAIL
           </Txt>
-          <Pressable
-            onPress={close}
-            accessibilityRole="button"
-            accessibilityLabel="Close task detail"
-            hitSlop={12}
-            style={[styles.close, { backgroundColor: scheme.surfaceAlt }]}
-          >
-            <X size={16} color={scheme.textSecondary} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: space[1.5] }}>
+            <IconButton
+              icon={<Trash2 size={15} color={status.danger.solid} />}
+              accessibilityLabel="Delete task"
+              size={28}
+              onPress={() => setConfirmDelete(true)}
+            />
+            <IconButton
+              icon={<X size={16} color={scheme.textSecondary} />}
+              accessibilityLabel="Close task detail"
+              size={28}
+              onPress={close}
+            />
+          </View>
         </View>
 
-        <Txt variant="h2">{task.title}</Txt>
-        <Txt variant="bodySm" muted style={{ marginTop: space[1] }}>
-          Tap title to edit
-        </Txt>
+        {editingTitle ? (
+          <Input
+            value={draftTitle}
+            onChangeText={setDraftTitle}
+            autoFocus
+            multiline
+            maxLength={140}
+            showCount
+            accessibilityLabel="Task title"
+            onBlur={() => {
+              const next = draftTitle.trim();
+              if (next.length >= 3 && next !== task.title) {
+                patchTask(task.id, { title: next });
+                toast('Title updated', 'success');
+              }
+              setEditingTitle(false);
+            }}
+          />
+        ) : (
+          <Interactive
+            accessibilityRole="button"
+            accessibilityLabel={`Edit title: ${task.title}`}
+            onPress={() => {
+              setDraftTitle(task.title);
+              setEditingTitle(true);
+            }}
+            radius="sm"
+          >
+            <Txt variant="h2" style={complete ? styles.strike : undefined}>
+              {task.title}
+            </Txt>
+            <Txt variant="bodySm" muted style={{ marginTop: space[1] }}>
+              Tap title to edit
+            </Txt>
+          </Interactive>
+        )}
 
         <View style={styles.chipRow}>
           {task.tag ? <Chip label={task.tag} tone="success" /> : null}
           <Chip label={task.context} icon={<MapPin size={12} color={scheme.textSecondary} />} />
         </View>
         <View style={styles.chipRow}>
-          <Chip label={task.due} icon={<CalendarDays size={12} color={scheme.textSecondary} />} />
-          <Chip label={`+${task.loadDelta}% load · ${task.estimate}`} tone="success" />
+          <Chip
+            label={formatDue(task.dueAt, now)}
+            tone={overdue ? 'danger' : 'neutral'}
+            icon={<CalendarDays size={12} color={overdue ? status.danger.solid : scheme.textSecondary} />}
+          />
+          <Chip
+            label={`+${loadPercent(task)}% load · ${formatEstimate(task.estimateMin)}`}
+            tone="success"
+          />
         </View>
+
+        {/* ── Progress ──────────────────────────────────────────────────── */}
+        {total > 0 ? (
+          <View style={{ marginTop: space[4], gap: space[1.5] }}>
+            <ProgressBar
+              value={pct}
+              tone={pct === 100 ? 'success' : 'brand'}
+              label={`${done} of ${total} sub-tasks complete`}
+            />
+          </View>
+        ) : null}
 
         {/* ── Sub-tasks ─────────────────────────────────────────────────── */}
         <View style={styles.sectionHead}>
           <Txt variant="h4">
-            Sub-tasks ({doneCount} of {task.subtasks.length} complete)
+            Sub-tasks ({done} of {total} complete)
           </Txt>
-          <Pressable accessibilityRole="button" style={styles.addStep} hitSlop={8}>
-            <Plus size={14} color={scheme.primary} />
-            <Txt variant="label" color={scheme.primary}>
-              Add step
-            </Txt>
-          </Pressable>
+          {!adding ? (
+            <Interactive
+              accessibilityRole="button"
+              accessibilityLabel="Add a step"
+              onPress={() => setAdding(true)}
+              radius="pill"
+              style={styles.addStep}
+              hitSlop={8}
+            >
+              <Plus size={14} color={scheme.primary} />
+              <Txt variant="label" color={scheme.primary}>
+                Add step
+              </Txt>
+            </Interactive>
+          ) : null}
         </View>
 
-        <View style={[styles.subBox, { borderColor: scheme.border }]}>
-          {task.subtasks.map((s, i) => (
-            <SubTaskRow key={s.id} sub={s} last={i === task.subtasks.length - 1} />
-          ))}
-        </View>
+        {total > 0 ? (
+          <View style={[styles.subBox, { borderColor: scheme.border }]}>
+            {task.subtasks.map((sub, i) => (
+              <SubTaskRow
+                key={sub.id}
+                sub={sub}
+                first={i === 0}
+                // Exactly one row carries the pill: the first thing still open.
+                isNext={!sub.done && task.subtasks.findIndex((s) => !s.done) === i}
+                onToggle={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  toggleSubtask(task.id, sub.id);
+                }}
+              />
+            ))}
+          </View>
+        ) : !adding ? (
+          <Txt variant="bodySm" muted>
+            No steps yet. Breaking this down is usually what unblocks it.
+          </Txt>
+        ) : null}
+
+        {adding ? (
+          <View style={styles.addRow}>
+            <View style={{ flex: 1 }}>
+              <Input
+                value={newStep}
+                onChangeText={setNewStep}
+                placeholder="What is the next concrete step?"
+                autoFocus
+                returnKeyType="done"
+                maxLength={120}
+                onSubmitEditing={submitStep}
+                accessibilityLabel="New sub-task"
+                error={newStep.length > 0 && newStep.trim().length < 2 ? 'A little more than that.' : undefined}
+              />
+            </View>
+            <IconButton
+              icon={<Check size={16} color={scheme.onPrimary} />}
+              accessibilityLabel="Save step"
+              size={40}
+              disabled={newStep.trim().length < 2}
+              onPress={submitStep}
+            />
+            <IconButton
+              icon={<X size={16} color={scheme.textMuted} />}
+              accessibilityLabel="Cancel"
+              size={40}
+              onPress={() => {
+                setAdding(false);
+                setNewStep('');
+              }}
+            />
+          </View>
+        ) : null}
 
         {/* ── Notes ─────────────────────────────────────────────────────── */}
         {task.notes ? (
@@ -113,8 +277,8 @@ export default function TaskDetailScreen() {
               ATTACHED RESOURCES
             </Txt>
             <View style={{ gap: space[2] }}>
-              {task.resources.map((r) => (
-                <ResourceRow key={r.id} resource={r} />
+              {task.resources.map((resource) => (
+                <ResourceRow key={resource.id} resource={resource} />
               ))}
             </View>
           </>
@@ -135,34 +299,85 @@ export default function TaskDetailScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      <View style={styles.footer}>
+        <Button
+          label={complete ? 'Re-open task' : 'Mark complete'}
+          variant={complete ? 'secondary' : 'primary'}
+          fullWidth
+          icon={complete ? undefined : <Check size={16} color={scheme.onPrimary} />}
+          onPress={() => {
+            Haptics.impactAsync(
+              complete ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
+            ).catch(() => {});
+            toggleTask(task.id);
+            toast(complete ? 'Re-opened' : 'Task complete', complete ? 'neutral' : 'success');
+            if (!complete) close();
+          }}
+        />
+      </View>
+
+      <ConfirmDialog
+        visible={confirmDelete}
+        title="Delete this task?"
+        body={`“${task.title}” and its ${total} sub-task${total === 1 ? '' : 's'} go with it. This cannot be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          removeTask(task.id);
+          toast('Task deleted', 'neutral');
+          close();
+        }}
+      />
     </Sheet>
   );
 }
 
-function SubTaskRow({ sub, last }: { sub: SubTask; last: boolean }) {
+function SubTaskRow({
+  sub,
+  first,
+  isNext,
+  onToggle,
+}: {
+  sub: SubTask;
+  first: boolean;
+  isNext: boolean;
+  onToggle: () => void;
+}) {
   const scheme = useScheme();
+
   return (
     <View
-      style={[
-        styles.subRow,
-        !last && { borderBottomWidth: 1, borderBottomColor: scheme.border },
-      ]}
+      style={[styles.subRow, !first && { borderTopWidth: 1, borderTopColor: scheme.border }]}
     >
-      <Checkbox checked={sub.done} onToggle={() => {}} accessibilityLabel={sub.title} />
-      <Txt variant="bodySm" style={{ flex: 1 }} numberOfLines={2}>
+      <Checkbox checked={sub.done} onToggle={onToggle} accessibilityLabel={sub.title} />
+      <Txt
+        variant="bodySm"
+        style={[{ flex: 1 }, sub.done && styles.strike]}
+        color={sub.done ? scheme.textMuted : undefined}
+        numberOfLines={2}
+      >
         {sub.title}
       </Txt>
-      {sub.nextAction ? <Chip label="Next Action" tone="success" variant="filled" size="sm" /> : null}
+      {isNext ? <Chip label="Next Action" tone="success" variant="filled" size="sm" /> : null}
     </View>
   );
 }
 
 function ResourceRow({ resource }: { resource: Resource }) {
   const scheme = useScheme();
+  const { toast } = useApp();
+
   return (
-    <Pressable
+    <Interactive
       accessibilityRole="button"
       accessibilityLabel={`${resource.name}, ${resource.kind}, ${resource.size}`}
+      accessibilityHint="File storage is not connected yet"
+      onPress={() => toast('File storage arrives with the backend', 'neutral')}
+      radius="md"
       style={[styles.resource, { borderColor: scheme.border }]}
     >
       <View style={[styles.resourceIcon, { backgroundColor: scheme.surfaceAlt }]}>
@@ -181,21 +396,15 @@ function ResourceRow({ resource }: { resource: Resource }) {
       ) : (
         <Download size={16} color={scheme.textMuted} />
       )}
-    </Pressable>
+    </Interactive>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingBottom: space[8] },
+  scroll: { paddingBottom: space[6] },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   eyebrow: { letterSpacing: 1.2 },
-  close: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  strike: { textDecorationLine: 'line-through' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1.5], marginTop: space[2.5] },
 
   sectionHead: {
@@ -204,9 +413,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: space[6],
     marginBottom: space[2.5],
+    minHeight: 28,
   },
   sectionTitle: { marginTop: space[6], marginBottom: space[2.5] },
-  addStep: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  addStep: { flexDirection: 'row', alignItems: 'center', gap: space[1], paddingVertical: space[1] },
+  addRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], marginTop: space[2] },
 
   subBox: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
   subRow: {
@@ -241,4 +452,6 @@ const styles = StyleSheet.create({
     gap: space[1.5],
   },
   pipNoteHead: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
+
+  footer: { paddingTop: space[3] },
 });
