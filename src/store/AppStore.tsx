@@ -26,7 +26,8 @@ import { isoDate } from '@/data/format';
 import type {
   AppData,
   AsyncState,
-  CaptureMode,
+  CaptureId,
+  CaptureKind,
   CaptureReview,
   ProposedTask,
   Settings,
@@ -99,8 +100,8 @@ type Action =
   | { type: 'task/remove'; id: TaskId }
   | { type: 'task/add'; tasks: Task[] }
   | { type: 'query/set'; patch: Partial<TaskQuery> }
-  | { type: 'inbox/add'; text: string; mode: CaptureMode }
-  | { type: 'inbox/remove'; id: string }
+  | { type: 'inbox/add'; text: string; kind: CaptureKind; durationSec?: number }
+  | { type: 'inbox/removeMany'; ids: CaptureId[] }
   | { type: 'sparks/add'; amount: number }
   | { type: 'shop/pending'; id: string; on: boolean }
   | { type: 'shop/own'; id: ShopItemId; price: number }
@@ -201,15 +202,24 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         data: {
           ...data,
+          // Newest first: the Inbox is a stack you work down, not a log.
           inbox: [
-            { id: uid('cap'), text: action.text, mode: action.mode, createdAt: new Date().toISOString() },
+            {
+              id: uid('cap'),
+              text: action.text,
+              kind: action.kind,
+              durationSec: action.durationSec,
+              createdAt: new Date().toISOString(),
+            },
             ...data.inbox,
           ],
         },
       };
 
-    case 'inbox/remove':
-      return { ...state, data: { ...data, inbox: data.inbox.filter((c) => c.id !== action.id) } };
+    case 'inbox/removeMany': {
+      const gone = new Set(action.ids);
+      return { ...state, data: { ...data, inbox: data.inbox.filter((c) => !gone.has(c.id)) } };
+    }
 
     case 'sparks/add':
       return {
@@ -284,9 +294,14 @@ export interface AppApi {
   setQuery: (patch: Partial<TaskQuery>) => void;
 
   setReview: (review: CaptureReview | null) => void;
-  saveForLater: (text: string, mode: CaptureMode) => void;
-  discardCapture: (id: string) => void;
-  /** Commits a reviewed capture: creates tasks, awards Sparks, clears inbox. */
+  /** The only thing the capture screen does. */
+  capture: (text: string, kind: CaptureKind, durationSec?: number) => void;
+  discardCaptures: (ids: CaptureId[]) => void;
+  /**
+   * Commits a triaged batch: creates the accepted tasks, awards Sparks, and
+   * retires every note in the batch from the Inbox — including ones the user
+   * dropped, since they have now been looked at and decided on.
+   */
   commitReview: (review: CaptureReview, accepted: ProposedTask[]) => Task[];
 
   buy: (itemId: ShopItemId) => Promise<void>;
@@ -367,13 +382,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setQuery: (patch) => dispatch({ type: 'query/set', patch }),
 
       setReview: (review) => dispatch({ type: 'review/set', review }),
-      saveForLater: (text, mode) => dispatch({ type: 'inbox/add', text, mode }),
-      discardCapture: (id) => dispatch({ type: 'inbox/remove', id }),
+      capture: (text, kind, durationSec) =>
+        dispatch({ type: 'inbox/add', text, kind, durationSec }),
+      discardCaptures: (ids) => dispatch({ type: 'inbox/removeMany', ids }),
 
       commitReview: (review, accepted) => {
         const tasks = accepted.map(materialise);
         dispatch({ type: 'task/add', tasks });
         dispatch({ type: 'sparks/add', amount: review.sparksReward });
+        dispatch({ type: 'inbox/removeMany', ids: review.sourceIds });
         dispatch({ type: 'review/set', review: null });
         return tasks;
       },

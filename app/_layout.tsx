@@ -92,10 +92,13 @@ function Routes() {
     >
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="shop" options={{ animation: 'slide_from_bottom' }} />
-      <Stack.Screen
-        name="capture"
-        options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
-      />
+      <Stack.Screen name="inbox" />
+      {/*
+        Capture is a full-screen card, not a transparent modal. It has to cover
+        the tab bar and the screen beneath it — a canvas with the app still
+        showing around the edges is not a distraction-free one.
+      */}
+      <Stack.Screen name="capture" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen
         name="review"
         options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}

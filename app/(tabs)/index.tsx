@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Bell, CheckCircle2, ChevronRight, Clock, Flame, Leaf } from 'lucide-react-native';
+import { Bell, CheckCircle2, ChevronRight, Clock, Flame, Inbox, Leaf } from 'lucide-react-native';
 
 import {
   ForestHeader,
@@ -20,6 +20,7 @@ import { useApp } from '@/store/AppStore';
 import {
   useCapacity,
   useFocusTasks,
+  useInboxCount,
   useNow,
   usePipState,
   useStreak,
@@ -47,6 +48,7 @@ export default function HomeScreen() {
   const focus = useFocusTasks();
   const week = useWeekSeries();
   const unread = useUnreadCount();
+  const inboxCount = useInboxCount();
 
   const [notifOpen, setNotifOpen] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
@@ -102,13 +104,28 @@ export default function HomeScreen() {
               </Txt>
               <Leaf size={16} color={scheme.secondary} />
             </View>
-            <IconButton
-              icon={<Bell size={18} color={onForest.primary} />}
-              accessibilityLabel="Notifications"
-              tone="onDark"
-              badge={unread}
-              onPress={() => setNotifOpen(true)}
-            />
+            <View style={styles.headerActions}>
+              {/*
+                The Inbox lives here rather than in the tab bar because it is a
+                destination you visit deliberately, when you have the attention
+                for triage — unlike capture, which has to be one tap from
+                anywhere. The badge is the only place the queue depth is shown.
+              */}
+              <IconButton
+                icon={<Inbox size={18} color={onForest.primary} />}
+                accessibilityLabel="Capture inbox"
+                tone="onDark"
+                badge={inboxCount}
+                onPress={() => router.push('/inbox')}
+              />
+              <IconButton
+                icon={<Bell size={18} color={onForest.primary} />}
+                accessibilityLabel="Notifications"
+                tone="onDark"
+                badge={unread}
+                onPress={() => setNotifOpen(true)}
+              />
+            </View>
           </View>
 
           <View style={styles.greetRow}>
@@ -134,7 +151,7 @@ export default function HomeScreen() {
             style={styles.stateCard}
             onPress={() => router.push('/pip')}
             accessibilityLabel={`Pip is ${pip.label}. ${pip.blurb}`}
-            accessibilityHint="Opens Pip's detail"
+            accessibilityHint="Opens Pip's detail — the only route to it now that the tab bar carries capture"
           >
             <View style={styles.stateHead}>
               <View style={[styles.stateBadge, { backgroundColor: status[stateTone].bg }]}>
@@ -268,7 +285,6 @@ export default function HomeScreen() {
               size="sm"
               tone="success"
             />
-            <Chip label={`${data.inbox.length} in inbox`} size="sm" tone={data.inbox.length ? 'info' : 'neutral'} />
           </View>
         </View>
       </ScrollView>
@@ -289,6 +305,7 @@ function greeting(now: Date): string {
 const styles = StyleSheet.create({
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   greetRow: { flexDirection: 'row', alignItems: 'center', marginTop: space[5] },
   greetText: { flex: 1, gap: space[0.5] },
 

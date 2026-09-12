@@ -174,7 +174,32 @@ export function seedData(): AppData {
       streakGoal: 7,
     },
     tasks: TASKS.map((t) => ({ ...t, subtasks: t.subtasks.map((s) => ({ ...s })) })),
-    inbox: [],
+    /**
+     * Three unprocessed captures, so the Inbox is demonstrable on first run.
+     * The badminton one deliberately contains two clauses — triage splits it
+     * into two proposals, which is the behaviour worth seeing.
+     */
+    inbox: [
+      {
+        id: 'cap1',
+        text: 'Ask the TA whether the Raft problem set covers leader election',
+        kind: 'text',
+        createdAt: at(0, 8, 40),
+      },
+      {
+        id: 'cap2',
+        text: 'Book the badminton court for Saturday. Text the group to confirm',
+        kind: 'text',
+        createdAt: at(0, 6, 15),
+      },
+      {
+        id: 'cap3',
+        text: "Pick up the parcel from the porter's lodge before it goes back",
+        kind: 'voice',
+        durationSec: 11,
+        createdAt: at(-1, 19),
+      },
+    ],
     vitals: [
       { id: 'sleep', label: 'Sleep', value: 84, note: 'High recovery reserves thanks to 7.8 hrs sleep.' },
       { id: 'focus', label: 'Focus', value: 72, note: 'Two deep-work blocks logged before noon.' },

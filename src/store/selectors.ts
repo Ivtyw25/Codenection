@@ -90,6 +90,12 @@ export function useTask(id: TaskId | undefined): Task | null {
   return useMemo(() => data.tasks.find((t) => t.id === id) ?? null, [data.tasks, id]);
 }
 
+/** Unprocessed captures waiting in the queue. Home's badge and the Inbox header. */
+export function useInboxCount(): number {
+  const { data } = useApp();
+  return data.inbox.length;
+}
+
 export function useUnreadCount(): number {
   const { data } = useApp();
   return useMemo(() => data.notifications.filter((n) => !n.read).length, [data.notifications]);

@@ -1,43 +1,42 @@
 import { Platform, StyleSheet, View } from 'react-native';
-import { Tabs } from 'expo-router';
-import { BarChart3, CheckSquare, Home, User } from 'lucide-react-native';
+import { Tabs, useRouter } from 'expo-router';
+import { BarChart3, CheckSquare, Home, Plus, User } from 'lucide-react-native';
 
-import { PipMascot } from '@/components/app';
 import { useApp } from '@/store/AppStore';
-import { usePipState } from '@/store/selectors';
 import { radius, space, type, useScheme } from '@/theme';
 
 /**
- * The centre Pip button. It sits proud of the bar on a lime ring — the one
- * place the secondary brand colour carries a whole element, and the flows'
- * single most recognisable affordance.
+ * The centre capture button.
+ *
+ * It keeps the raised 56pt geometry and the lime glow the Pip mascot held here
+ * before, because that slot's shape is the bar's most recognisable feature —
+ * only its job has changed. Filled `secondary` with a forest icon is the
+ * teardown's verified 7.47:1 hero pairing, and this is the one element in the
+ * app where the secondary colour carries a whole control.
+ *
+ * Capture has to be reachable in one tap from anywhere: a thought you have to
+ * navigate towards is a thought you lose.
  */
-const PIP_BUTTON = 56;
+const ADD_BUTTON = 56;
 
-function PipTabButton({ focused }: { focused: boolean }) {
+function AddTabButton() {
   const scheme = useScheme();
-  const pip = usePipState();
 
   return (
     <View
       style={[
-        styles.pipButton,
-        {
-          backgroundColor: scheme.surface,
-          borderColor: focused ? scheme.secondary : scheme.border,
-          // The lime focus glow, kept verbatim from the design system.
-          shadowColor: focused ? scheme.secondary : '#000',
-          shadowOpacity: focused ? 0.45 : 0.18,
-        },
+        styles.addButton,
+        { backgroundColor: scheme.secondary, shadowColor: scheme.secondary },
       ]}
     >
-      <PipMascot size={38} state={pip.name} />
+      <Plus size={28} color={scheme.onSecondary} strokeWidth={2.5} />
     </View>
   );
 }
 
 export default function TabsLayout() {
   const scheme = useScheme();
+  const router = useRouter();
   const { data } = useApp();
 
   const openToday = data.tasks.filter((t) => t.status === 'open').length;
@@ -80,11 +79,21 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="pip"
+        name="new"
         options={{
-          title: 'Pip',
-          tabBarIcon: ({ focused }) => <PipTabButton focused={focused} />,
+          title: '',
+          tabBarIcon: () => <AddTabButton />,
           tabBarItemStyle: { paddingTop: 0 },
+          tabBarAccessibilityLabel: 'Capture a thought',
+        }}
+        listeners={{
+          tabPress: (e) => {
+            // The screen behind this tab is a placeholder. Capture is a
+            // full-screen route outside the group, so the press never becomes
+            // a tab navigation.
+            e.preventDefault();
+            router.push('/capture');
+          },
         }}
       />
       <Tabs.Screen
@@ -105,22 +114,29 @@ export default function TabsLayout() {
           ),
         }}
       />
+
+      {/*
+        Pip keeps its route but leaves the bar — the centre slot it used to
+        hold is now capture. Home's "Pip's current state" card is the way in,
+        and the tab bar stays visible while you are there.
+      */}
+      <Tabs.Screen name="pip" options={{ href: null }} />
     </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
-  pipButton: {
-    width: PIP_BUTTON,
-    height: PIP_BUTTON,
+  addButton: {
+    width: ADD_BUTTON,
+    height: ADD_BUTTON,
     borderRadius: radius.pill,
-    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     // Raised above the bar, as in the flows.
     marginTop: -22,
     shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 10,
   },
 });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Inbox, Star, Trash2, TriangleAlert } from 'lucide-react-native';
+import { ChevronRight, Inbox, Star, TriangleAlert } from 'lucide-react-native';
 
 import { PipMascot } from '@/components/app';
 import {
@@ -11,12 +11,9 @@ import {
   Card,
   Chip,
   ConfirmDialog,
-  EmptyState,
-  Interactive,
   Txt,
 } from '@/components/ui';
 import { failNext } from '@/data/api';
-import { formatRelative } from '@/data/format';
 import { useApp } from '@/store/AppStore';
 import { usePipState } from '@/store/selectors';
 import { brand, radius, space, status, useScheme } from '@/theme';
@@ -35,7 +32,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { data, patchSettings, discardCapture, toast, reload } = useApp();
+  const { data, patchSettings, toast, reload } = useApp();
   const pip = usePipState();
 
   const [confirmReset, setConfirmReset] = useState(false);
@@ -77,56 +74,33 @@ export default function ProfileScreen() {
       </Card>
 
       {/* ── Inbox ───────────────────────────────────────────────────────── */}
-      <View style={styles.sectionHead}>
-        <Txt variant="h3">Capture inbox</Txt>
-        <Chip label={String(data.inbox.length)} size="sm" tone={data.inbox.length ? 'info' : 'neutral'} />
-      </View>
-
-      {data.inbox.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<Inbox size={26} color={scheme.textMuted} />}
-            title="Inbox empty"
-            body="Anything you save for later from the capture sheet waits here until Pip structures it."
-            action={{ label: 'Capture something', onPress: () => router.push('/capture') }}
-          />
-        </Card>
-      ) : (
-        <View style={{ gap: space[2] }}>
-          {data.inbox.map((note) => (
-            <Card key={note.id} style={styles.inboxRow}>
-              <View style={{ flex: 1, gap: space[1] }}>
-                <Txt variant="bodySm" numberOfLines={2}>
-                  {note.text}
-                </Txt>
-                <Txt variant="caption" muted>
-                  {note.mode === 'voice' ? 'Voice note' : 'Typed'} · {formatRelative(note.createdAt)}
-                </Txt>
-              </View>
-
-              <Button
-                label="Process"
-                size="sm"
-                variant="secondary"
-                onPress={() => router.push({ pathname: '/capture', params: { draft: note.text, from: note.id } })}
-              />
-              <Interactive
-                accessibilityRole="button"
-                accessibilityLabel={`Discard note: ${note.text.slice(0, 40)}`}
-                onPress={() => {
-                  discardCapture(note.id);
-                  toast('Note discarded', 'neutral');
-                }}
-                radius="pill"
-                hitSlop={8}
-                style={styles.discard}
-              >
-                <Trash2 size={16} color={scheme.textMuted} />
-              </Interactive>
-            </Card>
-          ))}
+      {/*
+        A link, not a second list. The Inbox has a screen of its own built for
+        batch triage; re-implementing a cut-down version of it here is exactly
+        the duplication that let Home and the Manifest drift apart before.
+      */}
+      <Card
+        onPress={() => router.push('/inbox')}
+        accessibilityLabel={`Capture inbox, ${data.inbox.length} unprocessed`}
+        accessibilityHint="Opens the inbox"
+        style={styles.navRow}
+      >
+        <View style={[styles.navIcon, { backgroundColor: scheme.surfaceAlt }]}>
+          <Inbox size={17} color={scheme.primary} />
         </View>
-      )}
+        <View style={{ flex: 1 }}>
+          <Txt variant="h4">Capture inbox</Txt>
+          <Txt variant="caption" muted>
+            {data.inbox.length === 0
+              ? 'Nothing waiting to be sorted'
+              : `${data.inbox.length} unprocessed ${data.inbox.length === 1 ? 'capture' : 'captures'}`}
+          </Txt>
+        </View>
+        {data.inbox.length > 0 ? (
+          <Chip label={String(data.inbox.length)} size="sm" tone="info" />
+        ) : null}
+        <ChevronRight size={18} color={scheme.textMuted} />
+      </Card>
 
       {/* ── Preferences ─────────────────────────────────────────────────── */}
       <Txt variant="h3" style={{ marginTop: space[2] }}>
@@ -243,12 +217,11 @@ const styles = StyleSheet.create({
     paddingTop: space[3],
     borderTopWidth: 1,
   },
-  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[2] },
-  inboxRow: { flexDirection: 'row', alignItems: 'center', gap: space[2.5], padding: space[3] },
-  discard: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.pill,
+  navRow: { flexDirection: 'row', alignItems: 'center', gap: space[2.5], padding: space[3.5] },
+  navIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },

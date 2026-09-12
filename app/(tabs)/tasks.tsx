@@ -6,7 +6,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Plus,
   RotateCcw,
   SlidersHorizontal,
 } from 'lucide-react-native';
@@ -253,24 +252,6 @@ export default function TasksScreen() {
         </View>
       </ScrollView>
 
-      {/*
-        Capture FAB.
-
-        The Figma bottom bar is inconsistent between frames — the Shop frame
-        shows a "+" in the centre slot, the Home/Tasks/Pip frames show Pip. The
-        Pip reading won (3 frames to 1), which leaves capture with no entry
-        point, so it gets a FAB on the screen its output lands in.
-      */}
-      <Interactive
-        accessibilityRole="button"
-        accessibilityLabel="Capture a new thought"
-        onPress={() => router.push('/capture')}
-        radius="pill"
-        style={[styles.fab, { backgroundColor: scheme.primary, shadowColor: brand.lime }]}
-      >
-        <Plus size={24} color={scheme.onPrimary} />
-      </Interactive>
-
       <FilterDrawer visible={filterOpen} onClose={() => setFilterOpen(false)} />
     </View>
   );
@@ -302,19 +283,4 @@ const styles = StyleSheet.create({
   showing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24 },
   jump: { flexDirection: 'row', alignItems: 'center', gap: space[1], paddingVertical: space[1] },
 
-  fab: {
-    position: 'absolute',
-    right: space[4],
-    bottom: space[5],
-    width: 56,
-    height: 56,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // The lime focus glow, reused as the FAB's lift.
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
-    elevation: 10,
-  },
 });

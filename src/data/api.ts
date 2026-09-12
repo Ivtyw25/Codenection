@@ -11,7 +11,8 @@
  */
 import type {
   AppData,
-  CaptureMode,
+  CaptureId,
+  CaptureNote,
   CaptureReview,
   IconName,
   ProposedTask,
@@ -135,22 +136,22 @@ function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function estimateFor(text: string): { minutes: number; load: TaskLoad; delta: number } {
-  const explicit = text.match(/\b(\d{1,3})\s*(min|minutes|m)\b/i);
+function estimateFor(text: string): { minutes: number; load: TaskLoad } {
+  const explicit = text.match(/(\d{1,3})\s*(min|minutes|m)/i);
   if (explicit) {
     const m = parseInt(explicit[1], 10);
-    return { minutes: m, load: m <= 20 ? 'low' : m <= 60 ? 'medium' : 'high', delta: Math.min(30, Math.round(m / 3)) };
+    return { minutes: m, load: m <= 20 ? 'low' : m <= 60 ? 'medium' : 'high' };
   }
-  const hours = text.match(/\b(\d{1,2})\s*(h|hr|hrs|hours?)\b/i);
+  const hours = text.match(/(\d{1,2})\s*(h|hr|hrs|hours?)/i);
   if (hours) {
     const m = parseInt(hours[1], 10) * 60;
-    return { minutes: m, load: m <= 60 ? 'medium' : 'high', delta: Math.min(30, Math.round(m / 3)) };
+    return { minutes: m, load: m <= 60 ? 'medium' : 'high' };
   }
   // Length of the thought is a weak but honest proxy.
   const words = text.split(/\s+/).length;
-  if (words <= 6) return { minutes: 15, load: 'low', delta: 8 };
-  if (words <= 16) return { minutes: 45, load: 'medium', delta: 16 };
-  return { minutes: 90, load: 'high', delta: 26 };
+  if (words <= 6) return { minutes: 15, load: 'low' };
+  if (words <= 16) return { minutes: 45, load: 'medium' };
+  return { minutes: 90, load: 'high' };
 }
 
 /** Shortest capture worth structuring. Below this, the field shows an error. */
@@ -163,12 +164,14 @@ const QUICK_WIN = /\b(reply|text|confirm|rsvp|say|send a quick|ping|acknowledge|
  * The capture parser.
  *
  * Nothing here is intelligent, and it is not meant to be — but it is *real*:
- * the Review sheet shows a breakdown of the words the user actually typed, so
- * editing the capture changes the proposal. The previous rebuild returned a
- * fixed three-task constant no matter what was entered.
+ * the triage sheet shows a breakdown of the words the user actually typed, so
+ * editing a note changes its proposal.
+ *
+ * Deliberately module-private. Capture no longer parses on the way in — this
+ * runs once, later, over a whole batch, from `processInbox`.
  */
-export function parseCapture(text: string, now: Date = new Date()): CaptureReview {
-  const trimmed = text.trim();
+function parseNote(note: CaptureNote, now: Date): { proposed: ProposedTask[]; quickWin: CaptureReview['quickWin'] } {
+  const trimmed = note.text.trim();
 
   const parts = clauses(trimmed);
   const proposed: ProposedTask[] = [];
@@ -194,6 +197,7 @@ export function parseCapture(text: string, now: Date = new Date()): CaptureRevie
 
     proposed.push({
       id: uid('p'),
+      sourceId: note.id,
       title: titleCase(part.slice(0, 120)),
       context: firstMatch(CONTEXT_HINTS, part, '@personal'),
       dueAt,
@@ -206,38 +210,48 @@ export function parseCapture(text: string, now: Date = new Date()): CaptureRevie
     });
   }
 
-  if (proposed.length === 0 && quickWin) {
-    // Everything collapsed into the quick win; still a valid outcome.
-    return { captureId: uid('cap'), proposed: [], quickWin, sparksReward: 5 };
+  return { proposed, quickWin };
+}
+
+/**
+ * Batch triage — the only way a capture becomes a task.
+ *
+ * Takes everything the user selected in the Inbox and structures it in one
+ * pass. At most one quick win survives a batch: the amber "just do it now"
+ * card is an interruption, and three of them stacked is no longer a nudge.
+ *
+ * Carries the same latency and failure mode as every other call here, because
+ * the Inbox's loading and error states are built against it — and because a
+ * triage that fails must leave the queue untouched rather than half-consumed.
+ */
+export async function processInbox(
+  notes: CaptureNote[],
+  now: Date = new Date(),
+): Promise<CaptureReview> {
+  await sleep(jitter(1400));
+  consumeFailure("Pip couldn't structure those. Your notes are safe — try again.");
+
+  if (notes.length === 0) {
+    throw new Error('Nothing selected to process.');
   }
 
+  const proposed: ProposedTask[] = [];
+  let quickWin: CaptureReview['quickWin'] = null;
+
+  for (const note of notes) {
+    const result = parseNote(note, now);
+    proposed.push(...result.proposed);
+    quickWin = quickWin ?? result.quickWin;
+  }
+
+  const sourceIds: CaptureId[] = notes.map((n) => n.id);
+
   return {
-    captureId: uid('cap'),
+    sourceIds,
     proposed,
     quickWin,
     sparksReward: 10 + proposed.length * 5 + (quickWin ? 5 : 0),
   };
-}
-
-// ── Writes ──────────────────────────────────────────────────────────────────
-
-/**
- * The async form. Same parse, plus the latency and the failure mode a real
- * extraction service would have — which is what the Capture screen's loading
- * and error states are built against.
- */
-export async function processCapture(
-  text: string,
-  _mode: CaptureMode,
-  now: Date = new Date(),
-): Promise<CaptureReview> {
-  await sleep(jitter(1400));
-  consumeFailure("Pip couldn't structure that. Your note is safe — try again.");
-
-  if (text.trim().length < MIN_CAPTURE) {
-    throw new Error('There is not enough here to work with yet. Add a few more words.');
-  }
-  return parseCapture(text, now);
 }
 
 export async function purchase(itemId: string, price: number, balance: number): Promise<void> {
@@ -248,10 +262,20 @@ export async function purchase(itemId: string, price: number, balance: number): 
   }
 }
 
-/** Voice capture. Returns a transcript; the UI shows a recording state. */
-export async function transcribe(seconds: number): Promise<string> {
+/**
+ * Voice capture.
+ *
+ * STUB. There is no recorder behind this — `VoiceRecorder` models the states
+ * (idle, recording, transcribing, error) against a timer, and this returns a
+ * fixed transcript after a plausible delay. The seam is the right shape for a
+ * real speech service, and the UI is already built for one.
+ */
+export async function transcribe(seconds: number): Promise<{ text: string; durationSec: number }> {
   await sleep(jitter(900));
   consumeFailure("Couldn't hear that clearly. Try again, or type it instead.");
   if (seconds < 1) throw new Error('That recording was too short to transcribe.');
-  return 'Email Prof. Miller about office hours tomorrow, and pick up cold brew beans on the way back';
+  return {
+    text: 'Email Prof. Miller about office hours tomorrow, and pick up cold brew beans on the way back',
+    durationSec: Math.round(seconds),
+  };
 }

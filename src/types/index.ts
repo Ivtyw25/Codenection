@@ -101,19 +101,37 @@ export interface TaskQuery {
 
 // ── Capture → Review (SCR-20 → SCR-21) ──────────────────────────────────────
 
-export type CaptureMode = 'type' | 'voice';
+/** How a capture got into the Inbox. A stored fact, not a UI toggle. */
+export type CaptureKind = 'text' | 'voice';
 
-/** A raw thought, before Pip has structured it. Survives "Save for later". */
+/**
+ * A raw thought. The Inbox is a queue of these.
+ *
+ * Deliberately NOT a task, and deliberately unprocessed: no context, no due
+ * date, no estimate. Getting a thought out of your head should cost three
+ * seconds and no decisions — structuring it is a separate job, done later and
+ * in bulk from `/inbox`. `parseCapture` never runs on the way in.
+ */
 export interface CaptureNote {
   id: CaptureId;
+  /** Voice notes carry their transcript here, so every note is editable text. */
   text: string;
-  mode: CaptureMode;
+  kind: CaptureKind;
+  /** Voice only. Drives the "0:11" chip on the Inbox row. */
+  durationSec?: number;
   createdAt: string;
 }
 
 /** A task the AI proposes in the Review sheet, before the user commits it. */
 export interface ProposedTask {
   id: string;
+  /**
+   * The Inbox note this came out of. Triage processes several notes at once, so
+   * a proposal has to know its origin: it is what lets the commit retire
+   * exactly the notes that were processed, and lets the sheet group proposals
+   * under the thought that produced them.
+   */
+  sourceId: CaptureId;
   title: string;
   context: TaskContext;
   dueAt: string | null;
@@ -132,9 +150,10 @@ export interface QuickWin {
   note: string;
 }
 
-/** The whole SCR-21 payload — what `api.processCapture` resolves to. */
+/** The whole SCR-21 payload — what `api.processInbox` resolves to. */
 export interface CaptureReview {
-  captureId: CaptureId;
+  /** Every note in this batch, including ones that yielded no proposal. */
+  sourceIds: CaptureId[];
   proposed: ProposedTask[];
   quickWin: QuickWin | null;
   /** Sparks awarded on commit. */

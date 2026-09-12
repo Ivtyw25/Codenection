@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { CalendarDays, CheckCircle2, Info, Sparkles, X, Zap } from 'lucide-react-native';
+import { CalendarDays, CheckCircle2, Info, Quote, Sparkles, X, Zap } from 'lucide-react-native';
 
 import { PipMascot } from '@/components/app';
 import {
@@ -41,8 +41,11 @@ export default function ReviewScreen() {
   const now = useNow();
   const pip = usePipState();
 
-  const { state, commitReview, setReview, toast } = useApp();
+  const { state, data, commitReview, setReview, toast } = useApp();
   const review = state.review;
+  // Lifted out so the memo below depends on the list itself rather than on
+  // `data` — the React Compiler cannot preserve a `data.inbox` dependency.
+  const inbox = data.inbox;
 
   const [dropped, setDropped] = useState<string[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -60,13 +63,37 @@ export default function ReviewScreen() {
 
   const budget = useBudget(accepted);
 
+  /**
+   * Proposals grouped under the capture they came from.
+   *
+   * Only worth drawing when a batch spans more than one note — with a single
+   * source the eyebrow would just repeat the sheet's own subject. The source
+   * notes are still in the Inbox at this point (the commit is what retires
+   * them), so their raw text is available to label each group.
+   */
+  const groups = useMemo(() => {
+    const bySource = new Map<string, typeof accepted>();
+    for (const task of accepted) {
+      const list = bySource.get(task.sourceId) ?? [];
+      list.push(task);
+      bySource.set(task.sourceId, list);
+    }
+    return [...bySource.entries()].map(([sourceId, tasks]) => ({
+      sourceId,
+      note: inbox.find((n) => n.id === sourceId) ?? null,
+      tasks,
+    }));
+  }, [accepted, inbox]);
+
+  const multiSource = review != null && review.sourceIds.length > 1;
+
   const commit = useCallback(() => {
     if (!review || accepted.length === 0) return;
     setCommitting(true);
     const created = commitReview(review, accepted);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     toast(
-      `${created.length} task${created.length === 1 ? '' : 's'} added · +${review.sparksReward} Sparks`,
+      `${created.length} task${created.length === 1 ? '' : 's'} added · inbox cleared · +${review.sparksReward} Sparks`,
       'success',
     );
     setCommitting(false);
@@ -81,8 +108,8 @@ export default function ReviewScreen() {
           <EmptyState
             icon={<Sparkles size={28} color={scheme.textMuted} />}
             title="Nothing to review"
-            body="Reviews are produced by the capture sheet. Start one and Pip will break it down."
-            action={{ label: 'Capture a thought', onPress: () => router.replace('/capture') }}
+            body="Triage starts in the Inbox. Pick the captures you want structured and Pip will break them down."
+            action={{ label: 'Open the inbox', onPress: () => router.replace('/inbox') }}
           />
         </View>
       </View>
@@ -104,7 +131,10 @@ export default function ReviewScreen() {
             <PipMascot size={52} state={pip.name} />
             <View style={{ flex: 1, gap: space[1] }}>
               <Chip
-                label={`${accepted.length} task${accepted.length === 1 ? '' : 's'} extracted`}
+                label={
+                  `${review.sourceIds.length} capture${review.sourceIds.length === 1 ? '' : 's'}` +
+                  ` · ${accepted.length} task${accepted.length === 1 ? '' : 's'}`
+                }
                 tone="success"
                 size="sm"
                 icon={<Sparkles size={11} color={status.success.solid} />}
@@ -126,28 +156,41 @@ export default function ReviewScreen() {
             <EmptyState
               icon={<Info size={26} color={scheme.textMuted} />}
               title="You dropped everything"
-              body="Nothing will be added. Go back and edit the capture, or restore one below."
+              body="Nothing will be added and the captures stay in your inbox. Restore one below, or go back."
               action={{ label: 'Restore all', onPress: () => setDropped([]) }}
             />
           ) : (
-            accepted.map((task) => (
-              <ProposedCard
-                key={task.id}
-                task={task}
-                now={now}
-                editing={editing === task.id}
-                onEdit={() => setEditing(task.id)}
-                onChangeTitle={(title) => setEdits((e) => ({ ...e, [task.id]: title }))}
-                onCommitTitle={() => setEditing(null)}
-                onDrop={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setDropped((d) => [...d, task.id]);
-                  toast('Dropped from this batch', 'neutral', {
-                    label: 'Undo',
-                    run: () => setDropped((d) => d.filter((id) => id !== task.id)),
-                  });
-                }}
-              />
+            groups.map((group) => (
+              <View key={group.sourceId}>
+                {multiSource && group.note ? (
+                  <View style={styles.sourceRow}>
+                    <Quote size={11} color={scheme.textDisabled} />
+                    <Txt variant="caption" muted numberOfLines={1} style={{ flex: 1 }}>
+                      {group.note.text}
+                    </Txt>
+                  </View>
+                ) : null}
+
+                {group.tasks.map((task) => (
+                  <ProposedCard
+                    key={task.id}
+                    task={task}
+                    now={now}
+                    editing={editing === task.id}
+                    onEdit={() => setEditing(task.id)}
+                    onChangeTitle={(title) => setEdits((e) => ({ ...e, [task.id]: title }))}
+                    onCommitTitle={() => setEditing(null)}
+                    onDrop={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setDropped((d) => [...d, task.id]);
+                      toast('Dropped from this batch', 'neutral', {
+                        label: 'Undo',
+                        run: () => setDropped((d) => d.filter((id) => id !== task.id)),
+                      });
+                    }}
+                  />
+                ))}
+              </View>
             ))
           )}
 
@@ -230,16 +273,16 @@ export default function ReviewScreen() {
           />
           <Interactive
             accessibilityRole="button"
-            accessibilityLabel="Go back and edit the capture"
+            accessibilityLabel="Back to the inbox without committing"
             onPress={() => {
               setReview(null);
-              router.replace('/capture');
+              router.back();
             }}
             radius="pill"
             style={styles.editMore}
           >
             <Txt variant="label" muted>
-              Edit the capture
+              Back to inbox
             </Txt>
           </Interactive>
         </View>
@@ -373,6 +416,12 @@ const styles = StyleSheet.create({
     marginBottom: space[2.5],
   },
   eyebrow: { letterSpacing: 1 },
+  sourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1.5],
+    marginBottom: space[2],
+  },
 
   card: {
     borderWidth: 1,
