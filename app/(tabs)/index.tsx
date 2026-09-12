@@ -164,7 +164,7 @@ function TaskRow({ task, onPress }: { task: Task; onPress: () => void }) {
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={task.title}>
       <Card style={styles.taskCard}>
         <View style={styles.taskHead}>
-          <Checkbox checked={task.done} onToggle={() => {}} label={`Complete ${task.title}`} />
+          <Checkbox checked={task.done} onToggle={() => {}} accessibilityLabel={`Complete ${task.title}`} />
           <Txt variant="h4" style={{ flex: 1 }} numberOfLines={2}>
             {task.title}
           </Txt>

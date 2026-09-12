@@ -2,11 +2,15 @@ import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Coffee, Moon, Settings, ShoppingBag, Star, Users } from 'lucide-react-native';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
 import { Card, ProgressBar, Txt } from '@/components/ui';
 import { PIP_BASE } from '@/data/shop';
 import { PIP } from '@/data/mock';
 import { brand, n, radius, space, status, useScheme } from '@/theme';
+
+/** Diameter of the ambient glow behind the mascot. */
+const GLOW = 300;
 
 /**
  * Pip — the mascot tab.
@@ -58,8 +62,25 @@ export default function PipScreen() {
             </View>
           </View>
 
-          {/* Ambient glow behind the mascot — decorative only. */}
-          <View style={styles.glow} pointerEvents="none" />
+          {/*
+            Ambient glow behind the mascot — decorative only.
+
+            A flat rgba circle reads as a hard-edged disc at this size, which is
+            not what the design shows. A real radial falloff needs an SVG
+            gradient; react-native-svg is already a dependency.
+          */}
+          <View style={styles.glow} pointerEvents="none">
+            <Svg width={GLOW} height={GLOW}>
+              <Defs>
+                <RadialGradient id="pipGlow" cx="50%" cy="50%" r="50%">
+                  <Stop offset="0%" stopColor={brand.lime} stopOpacity={0.22} />
+                  <Stop offset="55%" stopColor={brand.lime} stopOpacity={0.09} />
+                  <Stop offset="100%" stopColor={brand.lime} stopOpacity={0} />
+                </RadialGradient>
+              </Defs>
+              <Circle cx={GLOW / 2} cy={GLOW / 2} r={GLOW / 2} fill="url(#pipGlow)" />
+            </Svg>
+          </View>
           <Image source={PIP_BASE} style={styles.mascot} resizeMode="contain" />
 
           <Txt variant="bodySm" center color="rgba(255,255,255,0.78)" style={styles.blurb}>
@@ -256,11 +277,9 @@ const styles = StyleSheet.create({
   glow: {
     position: 'absolute',
     alignSelf: 'center',
-    top: 110,
-    width: 260,
-    height: 260,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(121,235,86,0.10)',
+    top: 90,
+    width: GLOW,
+    height: GLOW,
   },
   mascot: { width: 176, height: 176, alignSelf: 'center', marginTop: space[5] },
   blurb: { marginTop: space[4], paddingHorizontal: space[4] },

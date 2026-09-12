@@ -8,10 +8,22 @@ export interface CheckboxProps {
   checked: boolean;
   onToggle: (checked: boolean) => void;
   size?: number;
+  /** Visible text rendered beside the box. Omit for a bare checkbox. */
   label?: string;
+  /**
+   * Screen-reader name. Use this — not `label` — when the visible text lives
+   * in a sibling element, so the row is announced without being drawn twice.
+   */
+  accessibilityLabel?: string;
 }
 
-export function Checkbox({ checked, onToggle, size = 24, label }: CheckboxProps) {
+export function Checkbox({
+  checked,
+  onToggle,
+  size = 24,
+  label,
+  accessibilityLabel,
+}: CheckboxProps) {
   const scheme = useScheme();
   
   const hitSlop = Math.max(0, (MIN_TAP_TARGET - size) / 2);
@@ -20,7 +32,7 @@ export function Checkbox({ checked, onToggle, size = 24, label }: CheckboxProps)
     <TouchableOpacity
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
-      accessibilityLabel={label || 'Checkbox'}
+      accessibilityLabel={accessibilityLabel ?? label ?? 'Checkbox'}
       onPress={() => onToggle(!checked)}
       activeOpacity={0.8}
       hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}

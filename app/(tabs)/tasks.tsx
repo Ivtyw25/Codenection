@@ -183,7 +183,7 @@ function TaskCard({ task, onPress }: { task: Task; onPress: () => void }) {
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={task.title}>
       <Card style={{ gap: space[2.5] }}>
         <View style={styles.cardHead}>
-          <Checkbox checked={task.done} onToggle={() => {}} label={`Complete ${task.title}`} />
+          <Checkbox checked={task.done} onToggle={() => {}} accessibilityLabel={`Complete ${task.title}`} />
           <View style={[styles.typeIcon, { backgroundColor: scheme.surfaceAlt }]}>
             <Icon size={15} color={scheme.primary} />
           </View>

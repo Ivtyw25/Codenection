@@ -148,7 +148,7 @@ function SubTaskRow({ sub, last }: { sub: SubTask; last: boolean }) {
         !last && { borderBottomWidth: 1, borderBottomColor: scheme.border },
       ]}
     >
-      <Checkbox checked={sub.done} onToggle={() => {}} label={sub.title} />
+      <Checkbox checked={sub.done} onToggle={() => {}} accessibilityLabel={sub.title} />
       <Txt variant="bodySm" style={{ flex: 1 }} numberOfLines={2}>
         {sub.title}
       </Txt>

@@ -130,7 +130,7 @@ export default function CaptureScreen() {
 
           {preview.subtasks.map((s) => (
             <View key={s.id} style={[styles.subRow, { borderColor: scheme.border }]}>
-              <Checkbox checked={s.done} onToggle={() => {}} label={s.title} size={20} />
+              <Checkbox checked={s.done} onToggle={() => {}} accessibilityLabel={s.title} size={20} />
               <Txt variant="bodySm" style={{ flex: 1 }} numberOfLines={1}>
                 {s.title}
               </Txt>

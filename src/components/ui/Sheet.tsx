@@ -1,5 +1,8 @@
 import React, { ReactNode } from 'react';
-import { Modal, View, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { Modal, View, TouchableOpacity, StyleSheet } from 'react-native';
+// RN's own SafeAreaView is deprecated and iOS-only; the context package is
+// what the rest of the app already uses.
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useScheme, radius, space, elevation } from '@/theme';
 import { Txt } from './Txt';
 
