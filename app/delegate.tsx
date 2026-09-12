@@ -253,7 +253,7 @@ function WeekRow({ label, values, tone }: { label: string; values: number[]; ton
               {
                 // Floored so a quiet day is still a visible mark rather than
                 // an ambiguous absence.
-                height: Math.max(4, Math.round((Math.min(100, Math.max(0, v)) / 100) * 28)),
+                height: Math.max(4, Math.round((Math.min(100, Math.max(0, v)) / 100) * 36)),
                 backgroundColor: tone,
                 opacity: i === values.length - 1 ? 1 : 0.45,
               },
@@ -285,8 +285,9 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: radius.pill },
   week: { paddingHorizontal: space[3], paddingBottom: space[3], gap: space[2] },
   weekRow: { flexDirection: 'row', alignItems: 'flex-end', gap: space[2] },
-  bars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: space[1], height: 28 },
-  bar: { flex: 1, borderRadius: 2 },
+  // Capped width so seven days read as a trend rather than as seven bricks.
+  bars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: space[1], height: 36 },
+  bar: { flex: 1, maxWidth: 28, borderRadius: 3 },
   footnote: { marginTop: space[1], lineHeight: 17 },
   takeBack: {
     marginTop: space[3],

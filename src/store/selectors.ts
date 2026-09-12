@@ -126,7 +126,18 @@ export function useBudget(proposed: ProposedTask[]) {
           icon: p.icon,
           createdAt: now.toISOString(),
           completedAt: null,
-          subtasks: [],
+          // Carried through rather than flattened to []: pressure weights a
+          // task by the minutes still on the student's own plate, so a sheet
+          // that dropped the steps would promise the same number whether or
+          // not the 90-minute one had just been handed to someone else.
+          subtasks: p.subtasks.map((s) => ({
+            id: s.id,
+            title: s.title,
+            done: false,
+            estimateMin: s.estimateMin,
+            dependsOn: s.dependsOn,
+            delegatedTo: s.delegatedTo ?? null,
+          })),
           resources: [],
         })),
         now,
