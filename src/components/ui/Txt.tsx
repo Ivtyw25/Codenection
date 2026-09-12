@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text, type TextProps } from 'react-native';
 
-import { type, useScheme, type TypeName } from '@/theme';
+import { fontFamily, type, useScheme, type TypeName } from '@/theme';
 
 export interface TxtProps extends TextProps {
   variant?: TypeName;
@@ -11,21 +11,28 @@ export interface TxtProps extends TextProps {
 }
 
 /**
- * Optical correction for Neue Leiden's percent sign.
+ * Substitutes a conventional percent sign for Neue Leiden's.
  *
  * The face draws `%` as two lining-figure-sized circles and a slash on a
  * 1,177-unit advance — more than twice the width of its `H` (538), with
  * counters the same size and weight as its `0`. At caption and label sizes
  * "83%" therefore reads as "830/0", which was visible on device the moment the
- * font went in.
+ * font went in. Shrinking it only made a wrong-looking symbol smaller.
  *
- * The glyph is authentic and the binary is licensed, so neither gets edited.
- * Instead the symbol is set at 0.68em wherever it appears in a plain string,
- * which drops the circles below digit height and lets it read as punctuation.
- * Doing it here rather than at call sites means it holds for every `%` in the
+ * Every percentage in this app is a number the user is meant to act on —
+ * Pressure, Vitality, task load, the Review sheet's budget — so legibility
+ * outranks fidelity to the face for this one character. It is set in the
+ * platform's own sans instead. The binary is licensed and untouched; this is
+ * substitution at render time, not font surgery.
+ *
+ * `PERCENT_SCALE` reconciles the two faces' cap heights: Neue Leiden caps at
+ * 660/1000 em, the system sans at roughly 710, so the borrowed glyph is set at
+ * 0.93em to sit level with the digits beside it rather than towering over them.
+ *
+ * Doing this here rather than at call sites means it holds for every `%` in the
  * app — including the ones inside `Chip`, which only takes a string.
  */
-const PERCENT_SCALE = 0.68;
+const PERCENT_SCALE = 0.93;
 
 function splitPercent(text: string, fontSize: number, keyPrefix: string): React.ReactNode[] {
   const parts = text.split('%');
@@ -34,7 +41,10 @@ function splitPercent(text: string, fontSize: number, keyPrefix: string): React.
       ? [part]
       : [
           part,
-          <Text key={`${keyPrefix}-${i}`} style={{ fontSize: fontSize * PERCENT_SCALE }}>
+          <Text
+            key={`${keyPrefix}-${i}`}
+            style={{ fontFamily: fontFamily.system, fontSize: fontSize * PERCENT_SCALE }}
+          >
             %
           </Text>,
         ],
@@ -46,7 +56,7 @@ function splitPercent(text: string, fontSize: number, keyPrefix: string): React.
  * `{value}% left` compiles to. Anything else — nested elements, numbers alone —
  * passes through untouched.
  */
-function withOpticalPercent(children: React.ReactNode, fontSize: number): React.ReactNode {
+function withReadablePercent(children: React.ReactNode, fontSize: number): React.ReactNode {
   if (typeof children === 'string') {
     return children.includes('%') ? splitPercent(children, fontSize, 'p') : children;
   }
@@ -73,7 +83,7 @@ export function Txt({ variant = 'body', color, center, muted, style, children, .
       style={[textStyle, { color: textColor }, center && { textAlign: 'center' }, style]}
       {...props}
     >
-      {withOpticalPercent(children, textStyle.fontSize)}
+      {withReadablePercent(children, textStyle.fontSize)}
     </Text>
   );
 }

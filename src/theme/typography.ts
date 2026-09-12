@@ -24,6 +24,20 @@ export const fontFamily = {
   semibold: 'NeueLeiden-SemiBold',
   bold: 'NeueLeiden-Bold',
   mono: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) as string,
+  /**
+   * The platform's own sans. Used for exactly one character — see `Txt`.
+   *
+   * Neue Leiden draws `%` as two lining-figure-sized circles and a slash on a
+   * 1,177-unit advance, more than twice the width of its `H` (538). At caption
+   * and label sizes "83%" reads as "830/0". Every percentage in this app is a
+   * number the user is meant to act on, so the symbol borrows a conventional
+   * glyph from the system face rather than shrinking an unreadable one.
+   */
+  system: Platform.select({
+    ios: 'Helvetica Neue',
+    android: 'sans-serif',
+    default: 'System',
+  }) as string,
 } as const;
 
 /**
