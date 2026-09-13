@@ -5,25 +5,30 @@ import * as Haptics from 'expo-haptics';
 import { Bell, CheckCircle2, ChevronRight, Clock, Flame, Inbox, Leaf } from 'lucide-react-native';
 
 import {
+  ForecastRow,
   ForestHeader,
   Gauge,
+  LoadBreakdown,
   NotificationsDrawer,
   PipMascot,
   StatTile,
   StreakDrawer,
-  TaskCard,
+  Timeline,
   onForest,
 } from '@/components/app';
 import { Card, Chip, EmptyState, IconButton, Interactive, Txt } from '@/components/ui';
 import { formatEstimate } from '@/data/format';
 import { useApp } from '@/store/AppStore';
+import type { Slot } from '@/store/selectors';
 import {
   useCapacity,
-  useFocusTasks,
+  useForecast,
   useInboxCount,
+  useLoadBreakdown,
   useNow,
   usePipState,
   useStreak,
+  useTodayTimeline,
   useUnreadCount,
   useWeekSeries,
 } from '@/store/selectors';
@@ -41,11 +46,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const now = useNow();
 
-  const { data, toggleTask, toggleSubtask, reload, toast } = useApp();
+  const { data, toggleTask, toggleSubtask, reload, toast, setQuery } = useApp();
   const capacity = useCapacity();
+  const breakdown = useLoadBreakdown();
+  const forecast = useForecast();
   const pip = usePipState();
   const streak = useStreak();
-  const focus = useFocusTasks();
+  const today = useTodayTimeline();
   const week = useWeekSeries();
   const unread = useUnreadCount();
   const inboxCount = useInboxCount();
@@ -61,23 +68,44 @@ export default function HomeScreen() {
     setTimeout(() => setRefreshing(false), 900);
   }, [reload]);
 
-  const completeTask = useCallback(
-    (id: string, title: string, wasDone: boolean) => {
+  /**
+   * Ticking a block on the rail.
+   *
+   * A synthetic block IS its task — a step-less errand has nothing smaller to
+   * tick — so the two cases route to different actions rather than the rail
+   * pretending every block is a sub-task.
+   */
+  const completeSlot = useCallback(
+    (slot: Slot) => {
+      const wasDone = slot.done;
       Haptics.impactAsync(
         wasDone ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
       ).catch(() => {});
-      toggleTask(id);
+
+      if (slot.synthetic) {
+        toggleTask(slot.taskId);
+        if (!wasDone) {
+          toast(`“${slot.title.slice(0, 32)}${slot.title.length > 32 ? '…' : ''}” done`, 'success', {
+            label: 'Undo',
+            run: () => toggleTask(slot.taskId),
+          });
+        }
+        return;
+      }
+
+      toggleSubtask(slot.taskId, slot.subId);
       if (!wasDone) {
-        toast(`“${title.slice(0, 32)}${title.length > 32 ? '…' : ''}” done`, 'success', {
+        toast('Step done · the rest of the day moves up', 'success', {
           label: 'Undo',
-          run: () => toggleTask(id),
+          run: () => toggleSubtask(slot.taskId, slot.subId),
         });
       }
     },
-    [toggleTask, toast],
+    [toggleTask, toggleSubtask, toast],
   );
 
   // This Week — the two metrics from Figma 19:485, over the real 7-day series.
+  const openCount = data.tasks.filter((t) => t.status === 'open').length;
   const weekCompleted = week.reduce((sum, d) => sum + d.tasksCompleted, 0);
   const weekPlanned = Math.max(weekCompleted, week.length * 3);
   const focusMinutes = data.tasks
@@ -167,7 +195,41 @@ export default function HomeScreen() {
             </View>
 
             <Gauge label="Pressure" value={capacity.pressure} kind="pressure" hint={capacity.pressureNote} />
+
+            {/*
+              Directly under the number it explains, not on a screen of its
+              own. A student who can see 64 and cannot see what the 64 is made
+              of has been told they are struggling and given nothing to do
+              about it — which is the exact failure mode this app exists to
+              avoid. Two rows here; the rest live on the Pip tab.
+            */}
+            {breakdown.slices.length > 0 ? (
+              <View style={styles.breakdown}>
+                <LoadBreakdown
+                  total={breakdown.total}
+                  slices={breakdown.slices}
+                  limit={2}
+                  onPressCategory={(categoryId) => {
+                    setQuery({ categoryId, range: 'all' });
+                    router.push('/tasks');
+                  }}
+                />
+              </View>
+            ) : null}
+
             <Gauge label="Vitality" value={capacity.vitality} kind="vitality" hint={capacity.vitalityNote} />
+
+            {/*
+              The gauges say where today is; this says where tomorrow lands if
+              the plan below is followed. Without it the card reports a number
+              and leaves the student to work out whether their day is worth
+              having.
+            */}
+            <ForecastRow
+              forecast={forecast}
+              pressure={capacity.pressure}
+              vitality={capacity.vitality}
+            />
           </Card>
 
           {/* ── Streak ──────────────────────────────────────────────────── */}
@@ -215,27 +277,42 @@ export default function HomeScreen() {
             </Interactive>
           </View>
 
-          {focus.length > 0 ? (
-            focus.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                compact
+          {/*
+            A rail of STEPS, not a stack of tasks.
+            “Three cards due today” is a summary of the backlog; this is the
+            answer to the question the student actually has at 10am, which is
+            what to start and when — and it is the only view in the app where
+            two different tasks can be read against each other on one clock.
+          */}
+          {today.slots.length > 0 ? (
+            <Card>
+              <Timeline
+                slots={today.slots}
                 now={now}
-                onPress={() => router.push(`/task/${task.id}`)}
-                onToggle={() => completeTask(task.id, task.title, task.status === 'done')}
-                onToggleSubtask={(subId) => {
-                  Haptics.selectionAsync().catch(() => {});
-                  toggleSubtask(task.id, subId);
-                }}
+                showParent
+                nowMarker
+                onToggle={completeSlot}
+                onOpen={(slot) => router.push(`/task/${slot.taskId}`)}
+                footer={
+                  <View style={styles.planFooter}>
+                    <Clock size={13} color={scheme.textMuted} />
+                    <Txt variant="caption" muted>
+                      {formatEstimate(today.plannedMin)} planned today
+                    </Txt>
+                  </View>
+                }
               />
-            ))
+            </Card>
           ) : (
             <Card>
               <EmptyState
                 icon={<CheckCircle2 size={28} color={status.success.solid} />}
-                title="Nothing left for today"
-                body="Your manifest is clear. Pip is going to be insufferable about this."
+                title={openCount > 0 ? 'Nothing scheduled today' : 'Nothing left for today'}
+                body={
+                  openCount > 0
+                    ? 'Everything open is planned for a later day. Pip is not going to invent work to fill the gap.'
+                    : 'Your manifest is clear. Pip is going to be insufferable about this.'
+                }
                 action={{ label: 'Capture something', onPress: () => router.push('/capture') }}
               />
             </Card>
@@ -311,6 +388,9 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: space[4], marginTop: -space[6], gap: space[3] },
   stateCard: { gap: space[3] },
+  // Inset and hairline-separated, so the rows read as an explanation OF the
+  // gauge above rather than as a third gauge of their own.
+  breakdown: { marginTop: -space[1], marginLeft: space[1] },
   stateHead: { flexDirection: 'row', alignItems: 'center', gap: space[2.5] },
   stateBadge: {
     width: 32,
@@ -340,4 +420,5 @@ const styles = StyleSheet.create({
 
   tiles: { flexDirection: 'row', gap: space[3] },
   legend: { flexDirection: 'row', gap: space[1.5], marginTop: space[1], flexWrap: 'wrap' },
+  planFooter: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
 });

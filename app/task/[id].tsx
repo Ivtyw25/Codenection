@@ -3,24 +3,23 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
+  ArrowLeft,
   CalendarDays,
   Check,
+  Clock,
   Download,
   ExternalLink,
   FileText,
   Leaf,
-  Lock,
-  MapPin,
+
   Plus,
   Trash2,
-  UserPlus,
   X,
 } from 'lucide-react-native';
 
+import { TaskIcon, Timeline } from '@/components/app';
 import {
-  Avatar,
   Button,
-  Checkbox,
   Chip,
   ConfirmDialog,
   EmptyState,
@@ -28,18 +27,19 @@ import {
   Input,
   Interactive,
   ProgressBar,
-  Sheet,
+  Screen,
   Txt,
 } from '@/components/ui';
 import { formatDue, formatEstimate, isOverdue } from '@/data/format';
 import { blockers, loadPercent, nextAction, progress } from '@/data/derive';
+import { planSpan } from '@/data/schedule';
 import { useApp } from '@/store/AppStore';
-import { useNow, useTask, useTeammates } from '@/store/selectors';
+import { useCategory, useNow, useTask, useTaskTimeline } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
-import type { Resource, SubTask, Teammate } from '@/types';
+import type { Resource } from '@/types';
 
 /**
- * Task Detail — SCR-13. Opens as a bottom sheet over the Manifest.
+ * Task Detail — SCR-13. A full page, pushed from the Manifest.
  *
  * Everything on this sheet writes through to the store: sub-tasks tick, steps
  * are added, the title is editable, the task can be completed or deleted. Close
@@ -53,7 +53,8 @@ export default function TaskDetailScreen() {
 
   const { toggleTask, toggleSubtask, addSubtask, patchTask, removeTask, toast } = useApp();
   const task = useTask(id);
-  const teammates = useTeammates();
+  const category = useCategory(task?.categoryId);
+  const timeline = useTaskTimeline(id);
   const next = task ? nextAction(task) : null;
 
   const [adding, setAdding] = useState(false);
@@ -89,23 +90,56 @@ export default function TaskDetailScreen() {
 
   if (!task) {
     return (
-      <Sheet visible onClose={close} fullHeight>
+      <Screen>
         <EmptyState
           icon={<FileText size={28} color={scheme.textMuted} />}
           title="Task not found"
           body="This task may have been completed or removed."
           action={{ label: 'Go back', onPress: close }}
         />
-      </Sheet>
+      </Screen>
     );
   }
 
   const { done, total, pct } = progress(task);
   const complete = task.status === 'done';
   const overdue = !complete && isOverdue(task.dueAt, now);
+  const span = planSpan(timeline, now);
+  /*
+   * Why each locked step is locked, by id.
+   *
+   * Built here rather than inside the rail because `blockers` needs the whole
+   * task to answer, and the rail only ever sees slots — which is the right
+   * split: the timeline knows about time, the domain knows about dependencies.
+   */
+  const blockedBy: Record<string, string[]> = {};
+  for (const sub of task.subtasks) {
+    const waiting = blockers(task, sub);
+    if (waiting.length > 0) blockedBy[sub.id] = waiting.map((b) => b.title);
+  }
 
   return (
-    <Sheet visible onClose={close} fullHeight>
+    <Screen
+      scroll={false}
+      footer={
+        <View style={styles.footer}>
+          <Button
+            label={complete ? 'Re-open task' : 'Mark complete'}
+            variant={complete ? 'secondary' : 'primary'}
+            fullWidth
+            icon={complete ? undefined : <Check size={16} color={scheme.onPrimary} />}
+            onPress={() => {
+              Haptics.impactAsync(
+                complete ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
+              ).catch(() => {});
+              toggleTask(task.id);
+              toast(complete ? 'Re-opened' : 'Task complete', complete ? 'neutral' : 'success');
+              if (!complete) close();
+            }}
+          />
+        </View>
+      }
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
@@ -113,23 +147,21 @@ export default function TaskDetailScreen() {
       >
         {/* ── Head ──────────────────────────────────────────────────────── */}
         <View style={styles.head}>
-          <Txt variant="caption" muted style={styles.eyebrow}>
+          <IconButton
+            icon={<ArrowLeft size={18} color={scheme.text} />}
+            accessibilityLabel="Go back"
+            size={40}
+            onPress={close}
+          />
+          <Txt variant="caption" muted style={[styles.eyebrow, { flex: 1 }]}>
             TASK DETAIL
           </Txt>
-          <View style={{ flexDirection: 'row', gap: space[1.5] }}>
-            <IconButton
-              icon={<Trash2 size={15} color={status.danger.solid} />}
-              accessibilityLabel="Delete task"
-              size={28}
-              onPress={() => setConfirmDelete(true)}
-            />
-            <IconButton
-              icon={<X size={16} color={scheme.textSecondary} />}
-              accessibilityLabel="Close task detail"
-              size={28}
-              onPress={close}
-            />
-          </View>
+          <IconButton
+            icon={<Trash2 size={15} color={status.danger.solid} />}
+            accessibilityLabel="Delete task"
+            size={40}
+            onPress={() => setConfirmDelete(true)}
+          />
         </View>
 
         {editingTitle ? (
@@ -171,7 +203,21 @@ export default function TaskDetailScreen() {
 
         <View style={styles.chipRow}>
           {task.tag ? <Chip label={task.tag} tone="success" /> : null}
-          <Chip label={task.context} icon={<MapPin size={12} color={scheme.textSecondary} />} />
+          {/*
+            Carries the category's OWN icon rather than a generic pin. Once the
+            user picks the icon, it is the fastest thing on the card to
+            recognise — faster than reading the word next to it.
+          */}
+          <Chip
+            label={category?.label ?? task.categoryId}
+            icon={
+              <TaskIcon
+                name={category?.icon ?? 'Sparkles'}
+                size={12}
+                color={scheme.textSecondary}
+              />
+            }
+          />
         </View>
         <View style={styles.chipRow}>
           <Chip
@@ -183,6 +229,19 @@ export default function TaskDetailScreen() {
             label={`+${loadPercent(task)}% load · ${formatEstimate(task.estimateMin)}`}
             tone="success"
           />
+          {/*
+            The deadline says when this must be FINISHED; the plan says when it
+            actually gets worked on. Those are different facts and the sheet
+            used to show only the first, which is why a task due Friday read as
+            a thing that happens on Friday.
+          */}
+          {span ? (
+            <Chip
+              label={`Plan · ${span}`}
+              tone="info"
+              icon={<Clock size={12} color={status.info.solid} />}
+            />
+          ) : null}
         </View>
 
         {/* ── Progress ──────────────────────────────────────────────────── */}
@@ -220,29 +279,26 @@ export default function TaskDetailScreen() {
 
         {total > 0 ? (
           <View style={[styles.subBox, { borderColor: scheme.border }]}>
-            {task.subtasks.map((sub, i) => (
-              <SubTaskRow
-                key={sub.id}
-                sub={sub}
-                first={i === 0}
-                // Exactly one row carries the pill, and it is the first step
-                // that is actually startable — not merely the first unticked
-                // one, which could be locked behind unfinished work.
-                isNext={next?.id === sub.id}
-                blockedBy={blockers(task, sub)}
-                assignee={teammates.find((m) => m.id === sub.delegatedTo) ?? null}
-                onToggle={() => {
-                  Haptics.selectionAsync().catch(() => {});
-                  toggleSubtask(task.id, sub.id);
-                }}
-                onDelegate={() =>
-                  router.push({
-                    pathname: '/delegate',
-                    params: { taskId: task.id, subId: sub.id },
-                  })
-                }
-              />
-            ))}
+            <Timeline
+              slots={timeline}
+              now={now}
+              groupDays
+              // Exactly one row carries the pill, and it is the first step that
+              // is actually startable — not merely the first unticked one,
+              // which could be locked behind unfinished work.
+              nextId={next?.id ?? null}
+              blockedBy={blockedBy}
+              onToggle={(slot) => {
+                Haptics.selectionAsync().catch(() => {});
+                toggleSubtask(task.id, slot.subId);
+              }}
+              onDelegate={(slot) =>
+                router.push({
+                  pathname: '/delegate',
+                  params: { taskId: task.id, subId: slot.subId },
+                })
+              }
+            />
           </View>
         ) : !adding ? (
           <Txt variant="bodySm" muted>
@@ -368,24 +424,6 @@ export default function TaskDetailScreen() {
         ) : null}
       </ScrollView>
 
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <View style={styles.footer}>
-        <Button
-          label={complete ? 'Re-open task' : 'Mark complete'}
-          variant={complete ? 'secondary' : 'primary'}
-          fullWidth
-          icon={complete ? undefined : <Check size={16} color={scheme.onPrimary} />}
-          onPress={() => {
-            Haptics.impactAsync(
-              complete ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
-            ).catch(() => {});
-            toggleTask(task.id);
-            toast(complete ? 'Re-opened' : 'Task complete', complete ? 'neutral' : 'success');
-            if (!complete) close();
-          }}
-        />
-      </View>
-
       <ConfirmDialog
         visible={confirmDelete}
         title="Delete this task?"
@@ -400,108 +438,7 @@ export default function TaskDetailScreen() {
           close();
         }}
       />
-    </Sheet>
-  );
-}
-
-/**
- * One step.
- *
- * Three states beyond done/not-done: LOCKED (waiting on unfinished work — no
- * checkbox at all, because offering a control that refuses the tap is worse
- * than showing why it isn't there), DELEGATED (someone else's, still yours to
- * see), and startable.
- */
-function SubTaskRow({
-  sub,
-  first,
-  isNext,
-  blockedBy,
-  assignee,
-  onToggle,
-  onDelegate,
-}: {
-  sub: SubTask;
-  first: boolean;
-  isNext: boolean;
-  blockedBy: SubTask[];
-  assignee: Teammate | null;
-  onToggle: () => void;
-  onDelegate: () => void;
-}) {
-  const scheme = useScheme();
-  const locked = blockedBy.length > 0 && !sub.done;
-  const dimmed = locked || sub.done;
-
-  return (
-    <View
-      style={[styles.subRow, !first && { borderTopWidth: 1, borderTopColor: scheme.border }]}
-    >
-      {locked ? (
-        <View
-          style={styles.lockSlot}
-          accessible
-          accessibilityRole="image"
-          accessibilityLabel={`Locked. Waiting on ${blockedBy.map((b) => b.title).join(' and ')}.`}
-        >
-          <Lock size={15} color={scheme.textDisabled} />
-        </View>
-      ) : (
-        <Checkbox checked={sub.done} onToggle={onToggle} accessibilityLabel={sub.title} />
-      )}
-
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt
-          variant="bodySm"
-          style={sub.done && styles.strike}
-          color={dimmed ? scheme.textMuted : undefined}
-          numberOfLines={2}
-        >
-          {sub.title}
-        </Txt>
-
-        <View style={styles.subMeta}>
-          <Txt variant="caption" muted>
-            {formatEstimate(sub.estimateMin)}
-          </Txt>
-
-          {locked ? (
-            <Txt variant="caption" color={scheme.textDisabled} numberOfLines={1} style={{ flex: 1 }}>
-              · Waiting on {blockedBy.map((b) => b.title).join(' + ')}
-            </Txt>
-          ) : null}
-
-          {assignee ? (
-            <>
-              <Txt variant="caption" muted>
-                ·
-              </Txt>
-              <Avatar initials={assignee.initials} size={16} />
-              <Txt variant="caption" muted numberOfLines={1}>
-                {assignee.name}
-              </Txt>
-            </>
-          ) : null}
-        </View>
-      </View>
-
-      {isNext ? <Chip label="Next Action" tone="success" variant="filled" size="sm" /> : null}
-
-      {!sub.done && !locked ? (
-        <Interactive
-          accessibilityRole="button"
-          accessibilityLabel={
-            assignee ? `Reassign ${sub.title}` : `Delegate ${sub.title} to someone`
-          }
-          onPress={onDelegate}
-          radius="pill"
-          hitSlop={8}
-          style={styles.delegateBtn}
-        >
-          <UserPlus size={14} color={scheme.primary} />
-        </Interactive>
-      ) : null}
-    </View>
+    </Screen>
   );
 }
 
@@ -540,7 +477,13 @@ function ResourceRow({ resource }: { resource: Resource }) {
 
 const styles = StyleSheet.create({
   scroll: { paddingBottom: space[6] },
-  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1.5],
+    marginLeft: -space[2],
+    marginBottom: space[1],
+  },
   eyebrow: { letterSpacing: 1.2 },
   strike: { textDecorationLine: 'line-through' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1.5], marginTop: space[2.5] },
@@ -557,18 +500,8 @@ const styles = StyleSheet.create({
   addStep: { flexDirection: 'row', alignItems: 'center', gap: space[1], paddingVertical: space[1] },
   addRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], marginTop: space[2] },
   depPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1] },
-  subMeta: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
-  /** Same footprint as the Checkbox it replaces, so locked rows don't reflow. */
-  lockSlot: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
-  delegateBtn: { padding: space[1] },
 
-  subBox: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
-  subRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2.5],
-    padding: space[3],
-  },
+  subBox: { borderWidth: 1, borderRadius: radius.md, padding: space[3], paddingBottom: 0 },
 
   notes: { padding: space[3.5], borderRadius: radius.md },
 
@@ -596,5 +529,6 @@ const styles = StyleSheet.create({
   },
   pipNoteHead: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
 
-  footer: { paddingTop: space[3] },
+  /** Screen renders the footer outside its padded content, so it pads itself. */
+  footer: { paddingHorizontal: space[4], paddingTop: space[3], paddingBottom: space[2] },
 });

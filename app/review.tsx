@@ -5,15 +5,16 @@ import * as Haptics from 'expo-haptics';
 import {
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Info,
-  Quote,
   Sparkles,
   UserPlus,
   X,
   Zap,
 } from 'lucide-react-native';
 
-import { PipMascot } from '@/components/app';
+import { PipMascot, Timeline } from '@/components/app';
 import {
   Avatar,
   Button,
@@ -25,9 +26,19 @@ import {
   Interactive,
   Txt,
 } from '@/components/ui';
+import { loadPercent } from '@/data/derive';
+import { categoryLabel } from '@/data/categories';
 import { formatDue, formatEstimate } from '@/data/format';
+import { compareSlots, planSpan, proposedSlotId, type Slot } from '@/data/schedule';
 import { useApp } from '@/store/AppStore';
-import { useBudget, useNow, usePipState, useTeammates } from '@/store/selectors';
+import {
+  useAllCategories,
+  useBudget,
+  useNow,
+  usePipState,
+  useProposedTimeline,
+  useTeammates,
+} from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
 import type { ProposedTask } from '@/types';
 
@@ -51,37 +62,42 @@ export default function ReviewScreen() {
   const now = useNow();
   const pip = usePipState();
 
-  const { state, data, commitReview, setReview, toast } = useApp();
+  const { state, commitReview, setReview, toast } = useApp();
   const teammates = useTeammates();
   const review = state.review;
-  // Lifted out so the memo below depends on the list itself rather than on
-  // `data` — the React Compiler cannot preserve a `data.inbox` dependency.
-  const inbox = data.inbox;
 
   const [dropped, setDropped] = useState<string[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const [quickDone, setQuickDone] = useState(false);
+  /** Which breakdown cards have their timeline open. */
+  const [expanded, setExpanded] = useState<string[]>([]);
+  /** Two-minute items the user cleared here rather than scheduling. */
+  const [completedNow, setCompletedNow] = useState<string[]>([]);
   const [committing, setCommitting] = useState(false);
 
   const accepted = useMemo(
     () =>
       (review?.proposed ?? [])
         .filter((p) => !dropped.includes(p.id))
-        .map((p) => ({ ...p, title: edits[p.id] ?? p.title })),
-    [review, dropped, edits],
+        .map((p) => ({
+          ...p,
+          title: edits[p.id] ?? p.title,
+          completeNow: completedNow.includes(p.id),
+        })),
+    [review, dropped, edits, completedNow],
   );
 
   const budget = useBudget(accepted);
-
-  /**
-   * Proposals grouped under the capture they came from.
+  /*
+   * When this batch would actually happen.
    *
-   * Only worth drawing when a batch spans more than one note — with a single
-   * source the eyebrow would just repeat the sheet's own subject. The source
-   * notes are still in the Inbox at this point (the commit is what retires
-   * them), so their raw text is available to label each group.
+   * Planned against the committed tasks, not in isolation — a sheet that
+   * promised Tuesday 9am for a slot the midterm revision already owns would
+   * have every time move the instant the user pressed Add.
    */
+  const schedule = useProposedTimeline(accepted);
+
   /**
    * Trivial items are pulled out of the breakdown list, not out of the commit.
    *
@@ -104,22 +120,6 @@ export default function ReviewScreen() {
     [accepted],
   );
 
-  const groups = useMemo(() => {
-    const bySource = new Map<string, typeof breakdown>();
-    for (const task of breakdown) {
-      const list = bySource.get(task.sourceId) ?? [];
-      list.push(task);
-      bySource.set(task.sourceId, list);
-    }
-    return [...bySource.entries()].map(([sourceId, tasks]) => ({
-      sourceId,
-      note: inbox.find((n) => n.id === sourceId) ?? null,
-      tasks,
-    }));
-  }, [breakdown, inbox]);
-
-  const multiSource = review != null && review.sourceIds.length > 1;
-
   const commit = useCallback(() => {
     if (!review || accepted.length === 0) return;
     setCommitting(true);
@@ -136,8 +136,8 @@ export default function ReviewScreen() {
   // Reached by deep link, or after a commit cleared the handoff.
   if (!review) {
     return (
-      <View style={[styles.root, { backgroundColor: scheme.scrim }]}>
-        <View style={[styles.sheet, { backgroundColor: scheme.surface }]}>
+      <View style={[styles.root, { backgroundColor: scheme.ground }]}>
+        <View style={styles.page}>
           <EmptyState
             icon={<Sparkles size={28} color={scheme.textMuted} />}
             title="Nothing to review"
@@ -150,10 +150,8 @@ export default function ReviewScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: scheme.scrim }]}>
-      <View style={[styles.sheet, { backgroundColor: scheme.surface }]}>
-        <View style={[styles.handle, { backgroundColor: scheme.borderStrong }]} />
-
+    <View style={[styles.root, { backgroundColor: scheme.ground }]}>
+      <View style={styles.page}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scroll}
@@ -177,12 +175,7 @@ export default function ReviewScreen() {
           </View>
 
           <View style={styles.sectionHead}>
-            <Txt variant="caption" muted style={styles.eyebrow}>
-              PROPOSED MANIFEST TASKS
-            </Txt>
-            <Txt variant="caption" muted>
-              Tap a title to edit
-            </Txt>
+            <Txt variant="h4">Proposed Manifest</Txt>
           </View>
 
           {accepted.length === 0 ? (
@@ -193,37 +186,31 @@ export default function ReviewScreen() {
               action={{ label: 'Restore all', onPress: () => setDropped([]) }}
             />
           ) : (
-            groups.map((group) => (
-              <View key={group.sourceId}>
-                {multiSource && group.note ? (
-                  <View style={styles.sourceRow}>
-                    <Quote size={11} color={scheme.textDisabled} />
-                    <Txt variant="caption" muted numberOfLines={1} style={{ flex: 1 }}>
-                      {group.note.text}
-                    </Txt>
-                  </View>
-                ) : null}
-
-                {group.tasks.map((task) => (
-                  <ProposedCard
-                    key={task.id}
-                    task={task}
-                    now={now}
-                    editing={editing === task.id}
-                    onEdit={() => setEditing(task.id)}
-                    onChangeTitle={(title) => setEdits((e) => ({ ...e, [task.id]: title }))}
-                    onCommitTitle={() => setEditing(null)}
-                    onDrop={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      setDropped((d) => [...d, task.id]);
-                      toast('Dropped from this batch', 'neutral', {
-                        label: 'Undo',
-                        run: () => setDropped((d) => d.filter((id) => id !== task.id)),
-                      });
-                    }}
-                  />
-                ))}
-              </View>
+            breakdown.map((task) => (
+              <ProposedCard
+                key={task.id}
+                task={task}
+                now={now}
+                slots={slotsFor(task, schedule)}
+                expanded={expanded.includes(task.id)}
+                onToggleTimeline={() =>
+                  setExpanded((e) =>
+                    e.includes(task.id) ? e.filter((id) => id !== task.id) : [...e, task.id],
+                  )
+                }
+                editing={editing === task.id}
+                onEdit={() => setEditing(task.id)}
+                onChangeTitle={(title) => setEdits((e) => ({ ...e, [task.id]: title }))}
+                onCommitTitle={() => setEditing(null)}
+                onDrop={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setDropped((d) => [...d, task.id]);
+                  toast('Dropped from this batch', 'neutral', {
+                    label: 'Undo',
+                    run: () => setDropped((d) => d.filter((id) => id !== task.id)),
+                  });
+                }}
+              />
             ))
           )}
 
@@ -249,8 +236,8 @@ export default function ReviewScreen() {
                   >
                     <View style={{ flex: 1, gap: 2 }}>
                       <Txt variant="bodySm">{sub.title}</Txt>
-                      <Txt variant="caption" color={status.info.fg}>
-                        {formatEstimate(sub.estimateMin)} · from {proposal.title}
+                      <Txt variant="caption" color={status.info.fg} numberOfLines={1}>
+                        from {proposal.title}
                       </Txt>
                     </View>
 
@@ -301,36 +288,76 @@ export default function ReviewScreen() {
                 </Txt>
               </View>
 
-              {trivial.map((task) => (
-                <View
-                  key={task.id}
-                  style={[
-                    styles.quickCard,
-                    { backgroundColor: status.warning.bg, borderColor: status.warning.solid },
-                  ]}
-                >
-                  <Zap size={16} color={status.warning.solid} />
-                  <View style={{ flex: 1 }}>
-                    <Txt variant="bodySm">{task.title}</Txt>
-                    <Txt variant="caption" color={status.warning.fg}>
-                      {formatEstimate(task.estimateMin)} · no steps needed
-                    </Txt>
+              {trivial.map((task) => {
+                const doneNow = completedNow.includes(task.id);
+                return (
+                  <View
+                    key={task.id}
+                    style={[
+                      styles.twoMinCard,
+                      { backgroundColor: status.warning.bg, borderColor: status.warning.solid },
+                    ]}
+                  >
+                    <View style={styles.quickRow}>
+                      <Zap size={16} color={status.warning.solid} />
+                      <Txt
+                        variant="bodySm"
+                        style={[{ flex: 1 }, doneNow && styles.strike]}
+                        color={doneNow ? status.warning.fg : undefined}
+                      >
+                        {task.title}
+                      </Txt>
+                      <IconButton
+                        icon={<X size={14} color={scheme.textMuted} />}
+                        accessibilityLabel={`Drop ${task.title}`}
+                        size={32}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          setDropped((d) => [...d, task.id]);
+                          toast('Dropped from this batch', 'neutral', {
+                            label: 'Undo',
+                            run: () => setDropped((d) => d.filter((id) => id !== task.id)),
+                          });
+                        }}
+                      />
+                    </View>
+
+                    {/*
+                      Both options commit the task. The difference is only
+                      whether it lands already finished — which is the honest
+                      version of the 2-minute rule: doing it now should still
+                      be something the week can see you did.
+                    */}
+                    <View style={styles.quickActions}>
+                      <Button
+                        label={doneNow ? 'Completed' : 'Complete'}
+                        size="sm"
+                        variant={doneNow ? 'primary' : 'secondary'}
+                        icon={
+                          <CheckCircle2
+                            size={14}
+                            color={doneNow ? scheme.onPrimary : scheme.text}
+                          />
+                        }
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                          setCompletedNow((c) =>
+                            c.includes(task.id) ? c : [...c, task.id],
+                          );
+                        }}
+                      />
+                      <Button
+                        label="Do it later"
+                        size="sm"
+                        variant={doneNow ? 'secondary' : 'primary'}
+                        onPress={() =>
+                          setCompletedNow((c) => c.filter((id) => id !== task.id))
+                        }
+                      />
+                    </View>
                   </View>
-                  <IconButton
-                    icon={<X size={14} color={scheme.textMuted} />}
-                    accessibilityLabel={`Drop ${task.title}`}
-                    size={32}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      setDropped((d) => [...d, task.id]);
-                      toast('Dropped from this batch', 'neutral', {
-                        label: 'Undo',
-                        run: () => setDropped((d) => d.filter((id) => id !== task.id)),
-                      });
-                    }}
-                  />
-                </View>
-              ))}
+                );
+              })}
             </>
           ) : null}
 
@@ -431,9 +458,24 @@ export default function ReviewScreen() {
   );
 }
 
+/** The proposal's blocks, in plan order. */
+function slotsFor(task: ProposedTask, schedule: Map<string, Slot>): Slot[] {
+  const ids =
+    task.subtasks.length === 0
+      ? [task.id]
+      : task.subtasks.map((s) => proposedSlotId(task.id, s.id));
+  return ids
+    .map((id) => schedule.get(id))
+    .filter((s): s is Slot => s != null)
+    .sort(compareSlots);
+}
+
 function ProposedCard({
   task,
   now,
+  slots,
+  expanded,
+  onToggleTimeline,
   editing,
   onEdit,
   onChangeTitle,
@@ -442,14 +484,20 @@ function ProposedCard({
 }: {
   task: ProposedTask;
   now: Date;
+  slots: Slot[];
+  expanded: boolean;
+  onToggleTimeline: () => void;
   editing: boolean;
   onEdit: () => void;
   onChangeTitle: (title: string) => void;
   onCommitTitle: () => void;
   onDrop: () => void;
 }) {
+  // Read here rather than drilled from the sheet: a proposal stores a category
+  // *id*, and the label it resolves to is the user's to change at any moment.
+  const categories = useAllCategories();
   const scheme = useScheme();
-  const teammates = useTeammates();
+  const span = planSpan(slots, now);
 
   return (
     <View style={[styles.card, { borderColor: scheme.border }]}>
@@ -490,7 +538,7 @@ function ProposedCard({
       </View>
 
       <View style={styles.chipRow}>
-        <Chip label={task.context} size="sm" tone="success" />
+        <Chip label={categoryLabel(categories, task.categoryId)} size="sm" tone="success" />
         <Chip
           label={formatDue(task.dueAt, now)}
           size="sm"
@@ -501,74 +549,67 @@ function ProposedCard({
           size="sm"
           tone={task.load === 'high' ? 'warning' : 'neutral'}
         />
+        {/*
+          What this one task costs as a share of a student-day, so the weight
+          of each card is legible before the batch total at the bottom.
+        */}
+        <Chip
+          label={`+${loadPercent(task)}% load`}
+          size="sm"
+          tone={loadPercent(task) >= 25 ? 'warning' : 'neutral'}
+          variant="filled"
+        />
       </View>
 
-      {task.calibrateLater ? (
-        <Chip
-          label="Calibrate later"
-          size="sm"
-          tone="info"
-          icon={<Info size={11} color={status.info.solid} />}
-        />
-      ) : null}
+      {/*
+        The breakdown opens into a plan, not just a list.
+        A disclosure row rather than a tap on the card body, because the title
+        is already bound to inline editing — and collapsed by default, because
+        four expanded rails is the wall of text this sheet exists to avoid.
+      */}
+      {slots.length > 0 ? (
+        <>
+          <Interactive
+            accessibilityRole="button"
+            accessibilityLabel={
+              expanded
+                ? `Hide the plan for ${task.title}`
+                : `Show when each step of ${task.title} is planned`
+            }
+            onPress={onToggleTimeline}
+            radius="md"
+            style={[styles.disclose, { backgroundColor: scheme.surfaceAlt }]}
+          >
+            <Txt variant="caption" muted style={{ flex: 1 }}>
+              {task.subtasks.length > 0
+                ? `${task.subtasks.length} step${task.subtasks.length === 1 ? '' : 's'}`
+                : 'One sitting'}
+              {span ? ` · ${span}` : ''}
+            </Txt>
+            <Txt variant="caption" color={scheme.primary}>
+              {expanded ? 'Hide plan' : 'See plan'}
+            </Txt>
+            {expanded ? (
+              <ChevronUp size={14} color={scheme.primary} />
+            ) : (
+              <ChevronDown size={14} color={scheme.primary} />
+            )}
+          </Interactive>
 
-      {task.subtasks.length > 0 ? (
-        <View style={{ gap: space[1.5], marginTop: space[1] }}>
-          {task.subtasks.map((sub) => {
-            // Shown before commit on purpose: ordering is the part of a
-            // breakdown most worth disagreeing with, and it is much cheaper to
-            // notice here than after four tasks are already on the Manifest.
-            const after = sub.dependsOn
-              .map((d) => task.subtasks.find((s) => s.id === d)?.title)
-              .filter(Boolean);
-            const assignee = teammates.find((m) => m.id === sub.delegatedTo) ?? null;
-
-            return (
-              <View key={sub.id} style={styles.subRow}>
-                <View style={[styles.radio, { borderColor: scheme.borderStrong }]} />
-                <View style={{ flex: 1, gap: 1 }}>
-                  <Txt variant="bodySm" muted>
-                    {sub.title}
-                  </Txt>
-                  <View style={styles.subMeta}>
-                    <Txt variant="caption" color={scheme.textDisabled}>
-                      {formatEstimate(sub.estimateMin)}
-                    </Txt>
-                    {after.length > 0 ? (
-                      <Txt
-                        variant="caption"
-                        color={scheme.textDisabled}
-                        numberOfLines={1}
-                        style={{ flex: 1 }}
-                      >
-                        · after {after.join(' + ')}
-                      </Txt>
-                    ) : null}
-                    {assignee ? (
-                      <Txt variant="caption" color={status.info.solid} numberOfLines={1}>
-                        · {assignee.name}
-                      </Txt>
-                    ) : null}
-                  </View>
-                </View>
-              </View>
-            );
-          })}
-        </View>
+          {expanded ? (
+            <View style={styles.railBox}>
+              <Timeline slots={slots} now={now} groupDays />
+            </View>
+          ) : null}
+        </>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: 'flex-end' },
-  sheet: {
-    maxHeight: '94%',
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    paddingHorizontal: space[4],
-    paddingBottom: space[6],
-  },
+  root: { flex: 1 },
+  page: { flex: 1, paddingHorizontal: space[4], paddingTop: space[6], paddingBottom: space[4] },
   handle: {
     width: 36,
     height: 4,
@@ -605,11 +646,20 @@ const styles = StyleSheet.create({
   },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1.5] },
-  subRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
-  subMeta: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  disclose: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1.5],
+    paddingVertical: space[2],
+    paddingHorizontal: space[3],
+    borderRadius: radius.md,
+    marginTop: space[1],
+  },
+  railBox: { marginTop: space[2.5] },
   assigned: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
-  radio: { width: 16, height: 16, borderRadius: radius.pill, borderWidth: 1.5 },
 
+  quickRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  quickActions: { flexDirection: 'row', gap: space[2], marginTop: space[2] },
   quickHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -625,6 +675,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.lg,
   },
+  /** Stacks, because the two-minute card carries its own pair of actions. */
+  twoMinCard: { padding: space[3], borderWidth: 1, borderRadius: radius.lg },
   strike: { textDecorationLine: 'line-through' },
 
   budget: {

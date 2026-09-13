@@ -11,12 +11,10 @@ import {
   Checkbox,
   ConfirmDialog,
   EmptyState,
-  ErrorState,
   IconButton,
   Interactive,
   Txt,
 } from '@/components/ui';
-import { processInbox } from '@/data/api';
 import { useApp } from '@/store/AppStore';
 import { useNow } from '@/store/selectors';
 import { radius, space, useScheme } from '@/theme';
@@ -39,12 +37,10 @@ export default function InboxScreen() {
   const router = useRouter();
   const now = useNow();
 
-  const { data, discardCaptures, setReview, toast } = useApp();
+  const { data, discardCaptures, toast } = useApp();
   const notes = data.inbox;
 
   const [selected, setSelected] = useState<CaptureId[]>([]);
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // A selection can outlive the notes it points at — a commit retires them.
@@ -67,28 +63,22 @@ export default function InboxScreen() {
     setSelected((current) => (current.length === notes.length ? [] : notes.map((n) => n.id)));
   }, [notes]);
 
-  const process = useCallback(async () => {
-    const batch = notes.filter((n) => live.includes(n.id));
-    if (batch.length === 0) return;
-
-    setProcessing(true);
-    setError(null);
-    try {
-      const review = await processInbox(batch, now);
-      setReview(review);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      setSelected([]);
-      router.push('/review');
-    } catch (e) {
-      // The queue is untouched on failure — nothing is half-consumed.
-      const message = (e as Error).message;
-      setError(message);
-      toast(message, 'danger');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-    } finally {
-      setProcessing(false);
-    }
-  }, [notes, live, now, setReview, router, toast]);
+  /**
+   * Process no longer breaks the batch down on the spot.
+   *
+   * It hands off to the clarification screen first, because the captures are
+   * three-second sentences and the facts that decide the shape of the work —
+   * real deadlines, steps already done, what someone else could take — are
+   * exactly what a hurried capture leaves out. Breaking down without asking
+   * produces something confidently wrong, and un-planning costs more than
+   * planning did. The actual structuring happens once the answers are in.
+   */
+  const process = useCallback(() => {
+    if (live.length === 0) return;
+    Haptics.selectionAsync().catch(() => {});
+    setSelected([]);
+    router.push({ pathname: '/clarify', params: { ids: live.join(',') } });
+  }, [live, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: scheme.ground }}>
@@ -138,17 +128,6 @@ export default function InboxScreen() {
         </ForestHeader>
 
         <View style={styles.body}>
-          {error ? (
-            <ErrorState
-              title="Couldn't structure those"
-              body={error}
-              onRetry={() => {
-                setError(null);
-                process();
-              }}
-            />
-          ) : null}
-
           {notes.length === 0 ? (
             <EmptyState
               icon={<InboxIcon size={28} color={scheme.textMuted} />}
@@ -187,11 +166,6 @@ export default function InboxScreen() {
                   />
                 ))}
               </View>
-
-              <Txt variant="caption" muted style={{ marginTop: space[4] }}>
-                Processing runs Pip&apos;s breakdown over everything you picked, in one pass. You
-                confirm the result before any of it becomes a task.
-              </Txt>
             </>
           )}
         </View>
@@ -214,13 +188,11 @@ export default function InboxScreen() {
             accessibilityLabel={`Delete ${live.length} selected`}
             size={48}
             onPress={() => setConfirmDelete(true)}
-            disabled={processing}
           />
           <View style={{ flex: 1 }}>
             <Button
               label={`Process ${live.length}`}
               fullWidth
-              loading={processing}
               icon={<Sparkles size={16} color={scheme.onPrimary} />}
               onPress={process}
             />

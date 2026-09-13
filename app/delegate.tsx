@@ -2,9 +2,10 @@ import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, Check, EyeOff, UserPlus } from 'lucide-react-native';
+import { ArrowLeft, ChevronDown, EyeOff, UserPlus } from 'lucide-react-native';
 
-import { Avatar, EmptyState, IconButton, Interactive, Screen, Txt } from '@/components/ui';
+import { PipMascot } from '@/components/app';
+import { Avatar, Button, EmptyState, IconButton, Interactive, Screen, Txt } from '@/components/ui';
 import { formatEstimate } from '@/data/format';
 import { useApp } from '@/store/AppStore';
 import { useTask, useTeammates } from '@/store/selectors';
@@ -117,8 +118,8 @@ export default function DelegateScreen() {
               first={i === 0}
               selected={step.assigned === mate.id}
               open={expanded.includes(mate.id)}
-              onPress={() => choose(mate.id)}
-              onLongPress={() =>
+              onAssign={() => choose(mate.id)}
+              onToggle={() =>
                 setExpanded((prev) =>
                   prev.includes(mate.id)
                     ? prev.filter((id) => id !== mate.id)
@@ -128,11 +129,6 @@ export default function DelegateScreen() {
             />
           ))}
         </View>
-
-        <Txt variant="caption" muted style={styles.footnote}>
-          Press and hold someone to see how their last week has gone. Pip only ever shows the
-          shape of it — never their numbers, and never what they&apos;re working on.
-        </Txt>
 
         {step.assigned ? (
           <Interactive
@@ -152,118 +148,190 @@ export default function DelegateScreen() {
   );
 }
 
+/**
+ * One teammate.
+ *
+ * Two separate targets, because they are two separate decisions: the row body
+ * opens their week (how are they doing?), the Assign button hands the work over
+ * (do it anyway). Collapsing both into one tap made looking someone up
+ * indistinguishable from giving them ninety minutes of work.
+ */
 function TeammateRow({
   mate,
   first,
   selected,
   open,
-  onPress,
-  onLongPress,
+  onAssign,
+  onToggle,
 }: {
   mate: Teammate;
   first: boolean;
   selected: boolean;
   open: boolean;
-  onPress: () => void;
-  onLongPress: () => void;
+  onAssign: () => void;
+  onToggle: () => void;
 }) {
   const scheme = useScheme();
   const tone = mate.state ? STATE_TONE[mate.state] : null;
 
   return (
     <View style={!first ? { borderTopWidth: 1, borderTopColor: scheme.border } : undefined}>
-      <Interactive
-        accessibilityRole="button"
-        accessibilityLabel={
-          `${mate.name}. ` +
-          (tone ? `${tone.label}. ` : 'Status not shared. ') +
-          (mate.sharesState ? 'Press and hold for their week.' : '')
-        }
-        onPress={onPress}
-        onLongPress={mate.sharesState ? onLongPress : undefined}
-        radius="md"
-        noScale
-        style={styles.row}
-      >
-        <Avatar initials={mate.initials} size={36} />
+      <View style={styles.row}>
+        <Interactive
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          accessibilityLabel={`${mate.name}. ${tone ? tone.label : 'Status not shared'}.`}
+          accessibilityHint={mate.sharesState ? "Opens this week's numbers" : undefined}
+          onPress={onToggle}
+          radius="md"
+          noScale
+          style={styles.rowBody}
+        >
+          <Avatar initials={mate.initials} size={36} />
 
-        <View style={{ flex: 1, gap: 2 }}>
-          <Txt variant="body">{mate.name}</Txt>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Txt variant="body">{mate.name}</Txt>
 
-          {tone ? (
-            <View style={styles.stateRow}>
-              <View style={[styles.dot, { backgroundColor: tone.solid }]} />
-              <Txt variant="caption" color={tone.fg}>
-                {tone.label}
-              </Txt>
-            </View>
-          ) : (
-            // Not "unknown" — they made a choice, and the screen should read as
-            // respecting it rather than as a gap in the data.
-            <View style={styles.stateRow}>
-              <EyeOff size={11} color={scheme.textDisabled} />
-              <Txt variant="caption" color={scheme.textDisabled}>
-                Not sharing
-              </Txt>
-            </View>
-          )}
-        </View>
+            {tone ? (
+              <View style={styles.stateRow}>
+                <View style={[styles.dot, { backgroundColor: tone.solid }]} />
+                <Txt variant="caption" color={tone.fg}>
+                  {tone.label}
+                </Txt>
+              </View>
+            ) : (
+              // Not "unknown" — they made a choice, and the screen should read
+              // as respecting it rather than as a gap in the data.
+              <View style={styles.stateRow}>
+                <EyeOff size={11} color={scheme.textDisabled} />
+                <Txt variant="caption" color={scheme.textDisabled}>
+                  Not sharing
+                </Txt>
+              </View>
+            )}
+          </View>
 
-        {selected ? <Check size={18} color={scheme.primary} /> : null}
-      </Interactive>
+          {mate.sharesState ? (
+            <ChevronDown
+              size={16}
+              color={scheme.textDisabled}
+              style={open ? styles.chevronOpen : undefined}
+            />
+          ) : null}
+        </Interactive>
 
-      {open && mate.week.length > 0 ? <WeekStrip week={mate.week} /> : null}
+        <Button
+          label={selected ? 'Assigned' : 'Assign'}
+          size="sm"
+          variant={selected ? 'primary' : 'secondary'}
+          onPress={onAssign}
+        />
+      </View>
+
+      {open && mate.sharesState ? <WeekPanel mate={mate} /> : null}
     </View>
   );
 }
 
+const DAY_INITIAL = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
 /**
- * Seven days as two rows of bars.
+ * The expanded panel: how this person is actually doing.
  *
- * Heights are normalised within the strip and carry no axis, no figures and no
- * task detail — enough to see "this has been climbing all week", not enough to
- * audit someone. That restraint is the whole reason a teammate would turn
- * sharing on at all.
+ * Their Pip is the headline because it is the reading a student already knows
+ * how to interpret; the seven days of numbers underneath are what justifies it.
+ * Today is the rightmost column and is drawn at full strength — the rest of the
+ * week is context for it, not seven equally important facts.
  */
-function WeekStrip({ week }: { week: DayRecord[] }) {
+function WeekPanel({ mate }: { mate: Teammate }) {
   const scheme = useScheme();
+  const tone = mate.state ? STATE_TONE[mate.state] : null;
 
   return (
     <View style={[styles.week, { backgroundColor: scheme.surfaceAlt }]}>
-      <WeekRow label="Pressure" values={week.map((d) => d.pressure)} tone={status.warning.solid} />
-      <WeekRow label="Vitality" values={week.map((d) => d.vitality)} tone={status.success.solid} />
+      <View style={styles.pipRow}>
+        <PipMascot size={56} state={mate.state ?? 'balanced'} />
+        <View style={{ flex: 1, gap: 2 }}>
+          {tone ? (
+            <Txt variant="h4" color={tone.fg}>
+              {tone.label}
+            </Txt>
+          ) : null}
+          <Txt variant="caption" muted>
+            {mate.name}&apos;s last seven days
+          </Txt>
+        </View>
+      </View>
+
+      <WeekRow
+        label="Pressure"
+        week={mate.week}
+        pick={(d) => d.pressure}
+        tone={status.warning.solid}
+      />
+      <WeekRow
+        label="Vitality"
+        week={mate.week}
+        pick={(d) => d.vitality}
+        tone={status.success.solid}
+      />
     </View>
   );
 }
 
-function WeekRow({ label, values, tone }: { label: string; values: number[]; tone: string }) {
+function WeekRow({
+  label,
+  week,
+  pick,
+  tone,
+}: {
+  label: string;
+  week: DayRecord[];
+  pick: (d: DayRecord) => number;
+  tone: string;
+}) {
   const scheme = useScheme();
+  const values = week.map(pick);
 
   return (
-    <View style={styles.weekRow}>
-      <Txt variant="caption" muted style={{ width: 58 }}>
+    <View style={{ gap: space[1] }}>
+      <Txt variant="caption" muted>
         {label}
       </Txt>
-      <View style={styles.bars} accessible accessibilityLabel={`${label} over the last seven days`}>
-        {values.map((v, i) => (
-          <View
-            key={i}
-            style={[
-              styles.bar,
-              {
-                // Floored so a quiet day is still a visible mark rather than
-                // an ambiguous absence.
-                height: Math.max(4, Math.round((Math.min(100, Math.max(0, v)) / 100) * 36)),
-                backgroundColor: tone,
-                opacity: i === values.length - 1 ? 1 : 0.45,
-              },
-            ]}
-          />
-        ))}
+      <View
+        style={styles.bars}
+        accessible
+        accessibilityLabel={`${label} over the last seven days: ${values.join(', ')}`}
+      >
+        {week.map((day, i) => {
+          const v = Math.min(100, Math.max(0, pick(day)));
+          const today = i === week.length - 1;
+          return (
+            <View key={day.date} style={styles.barCol}>
+              <Txt variant="caption" color={today ? scheme.text : scheme.textDisabled}>
+                {v}
+              </Txt>
+              <View style={styles.barTrack}>
+                <View
+                  style={[
+                    styles.bar,
+                    {
+                      // Floored so a quiet day is a visible mark rather than an
+                      // ambiguous absence.
+                      height: Math.max(3, Math.round((v / 100) * 40)),
+                      backgroundColor: tone,
+                      opacity: today ? 1 : 0.4,
+                    },
+                  ]}
+                />
+              </View>
+              <Txt variant="caption" color={scheme.textDisabled}>
+                {DAY_INITIAL[new Date(day.date).getDay()]}
+              </Txt>
+            </View>
+          );
+        })}
       </View>
-      <Txt variant="caption" color={scheme.textDisabled}>
-        7d
-      </Txt>
     </View>
   );
 }
@@ -280,15 +348,23 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: space[4], paddingBottom: space[8], gap: space[2] },
   eyebrow: { letterSpacing: 0.8 },
   list: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], padding: space[3] },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingRight: space[3] },
+  rowBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    padding: space[3],
+  },
+  chevronOpen: { transform: [{ rotate: '180deg' }] },
   stateRow: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   dot: { width: 8, height: 8, borderRadius: radius.pill },
-  week: { paddingHorizontal: space[3], paddingBottom: space[3], gap: space[2] },
-  weekRow: { flexDirection: 'row', alignItems: 'flex-end', gap: space[2] },
-  // Capped width so seven days read as a trend rather than as seven bricks.
-  bars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: space[1], height: 36 },
-  bar: { flex: 1, maxWidth: 28, borderRadius: 3 },
-  footnote: { marginTop: space[1], lineHeight: 17 },
+  week: { paddingHorizontal: space[3], paddingBottom: space[3], gap: space[3] },
+  pipRow: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: space[1] },
+  barCol: { flex: 1, alignItems: 'center', gap: 2 },
+  barTrack: { height: 40, justifyContent: 'flex-end' },
+  bar: { width: 14, borderRadius: 3 },
   takeBack: {
     marginTop: space[3],
     borderWidth: 1,

@@ -70,6 +70,43 @@ export function formatDueShort(iso: string | null, now: Date = new Date()): stri
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** "9:00 AM" — a single instant on the clock. */
+export function formatClock(iso: string | Date): string {
+  return new Date(iso).toLocaleTimeString(undefined, TIME);
+}
+
+/**
+ * "9:00 – 9:45 AM" · "11:30 AM – 12:15 PM" — one scheduled block.
+ *
+ * The meridiem is printed once when both ends share it, which is the common
+ * case and the difference between a rail that reads as a schedule and one that
+ * reads as a table of timestamps.
+ */
+export function formatTimeRange(startIso: string | Date, endIso: string | Date): string {
+  const start = formatClock(startIso);
+  const end = formatClock(endIso);
+  const m = /\s*([AP]M)$/i;
+  const sm = start.match(m);
+  const em = end.match(m);
+  if (sm && em && sm[1].toUpperCase() === em[1].toUpperCase()) {
+    return `${start.replace(m, '')} – ${end}`;
+  }
+  return `${start} – ${end}`;
+}
+
+/** "TODAY · SAT, SEP 13" — the day separator on a timeline. */
+export function formatDayHeading(d: Date | string, now: Date = new Date()): string {
+  const day = new Date(d);
+  const off = dayOffset(day, now);
+  const label = day
+    .toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    .toUpperCase();
+  if (off === 0) return `TODAY · ${label}`;
+  if (off === 1) return `TOMORROW · ${label}`;
+  if (off === -1) return `YESTERDAY · ${label}`;
+  return label;
+}
+
 /** "15 min" · "1h" · "1h 30m" — the three shapes the frames show. */
 export function formatEstimate(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -93,12 +130,17 @@ export function formatFullDate(d: Date): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** The seven days of `anchor`'s week, Monday-first, for the date strip. */
-export function weekOf(anchor: Date): Date[] {
+/**
+ * Seven days starting AT the anchor — the date strip.
+ *
+ * Rolling, not a Monday-first calendar week. Two reasons, both of them bugs the
+ * calendar version actually had: on a Sunday, "tomorrow" fell off the end of
+ * the row and could not be highlighted at all; and "This Week" filters to
+ * `anchor … anchor + 6`, which a Mon–Sun row only coincidentally matches. Now
+ * the strip shows exactly the days the range can select, today always first.
+ */
+export function weekFrom(anchor: Date): Date[] {
   const start = startOfDay(anchor);
-  // getDay(): 0 = Sunday. Shift so Monday is index 0.
-  const shift = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - shift);
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
@@ -111,10 +153,13 @@ export function dayInitial(d: Date): string {
   return d.toLocaleDateString(undefined, { weekday: 'narrow' }).slice(0, 1).toUpperCase();
 }
 
-/** "@academics" → "@Academics", for the filter row's labels. */
-export function contextLabel(ctx: string): string {
-  return ctx.replace(/^@(.)/, (_, c: string) => `@${c.toUpperCase()}`);
-}
+/*
+ * `contextLabel` lived here, capitalising "@academics" into "@Academics".
+ *
+ * It is gone because a category's name is no longer something the app derives
+ * from an id — it is a string the user typed, stored on the category itself.
+ * Use `categoryLabel(categories, id)` from `src/data/categories.ts`.
+ */
 
 /** "2 minutes ago" · "3h ago" · "Oct 25" — notification timestamps. */
 export function formatRelative(iso: string, now: Date = new Date()): string {

@@ -33,7 +33,7 @@ export function FilterDrawer({ visible, onClose }: { visible: boolean; onClose: 
   const { query } = state;
 
   const isDefault =
-    query.sort === 'due' && query.range === 'today' && !query.hideDone && query.context === 'all';
+    query.sort === 'due' && query.range === 'today' && !query.hideDone && query.categoryId === 'all';
 
   return (
     <Drawer
@@ -55,7 +55,7 @@ export function FilterDrawer({ visible, onClose }: { visible: boolean; onClose: 
                   sort: 'due',
                   range: 'today',
                   hideDone: false,
-                  context: 'all',
+                  categoryId: 'all',
                   anchor: isoDate(new Date()),
                 })
               }

@@ -99,14 +99,30 @@ function Routes() {
         showing around the edges is not a distraction-free one.
       */}
       <Stack.Screen name="capture" options={{ animation: 'slide_from_bottom' }} />
-      <Stack.Screen
-        name="review"
-        options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
-      />
-      <Stack.Screen
-        name="task/[id]"
-        options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }}
-      />
+      {/*
+        A full screen, not a sheet. The breakdown is the densest thing the app
+        asks anyone to read — four tasks, their steps, what waits on what — and
+        a sheet gives it two-thirds of the height plus a drag gesture that
+        dismisses the whole batch on a mis-swipe.
+      */}
+      <Stack.Screen name="clarify" options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="review" options={{ animation: 'slide_from_bottom' }} />
+      {/*
+        A page, not a sheet. Task Detail is now the densest screen in the app —
+        a title, two rows of chips, progress, a multi-day timeline, an add-step
+        form, notes and resources — and a bottom sheet gave all of that
+        two-thirds of the height plus a drag gesture that dismissed the lot on a
+        mis-swipe. It is also a destination you navigate TO, so it should push
+        like one and come back with the system Back gesture.
+      */}
+      <Stack.Screen name="task/[id]" options={{ animation: 'slide_from_right' }} />
+      {/*
+        One sub-stat, explained. A page rather than a drawer because it carries
+        a chart, a reasoned explanation and a set of suggestions — and because
+        it is where someone goes when they want to understand a number, which is
+        not a glance.
+      */}
+      <Stack.Screen name="vital/[id]" options={{ animation: 'slide_from_right' }} />
       {/*
         Delegation is a full screen, not a sheet: it is opened FROM the review
         sheet, and stacking a second sheet on the first leaves the user unsure

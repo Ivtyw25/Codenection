@@ -11,7 +11,9 @@
  * This is a fixture, not a mock: it is the initial value of real state, and
  * every field of it is mutable from the UI.
  */
-import type { AppData, DayRecord, ShopItem, Task, Teammate } from '@/types';
+import type { AppData, DayRecord, ShopItem, Task, Teammate, VitalId } from '@/types';
+import { DEFAULT_CATEGORIES } from './categories';
+import { DEFAULT_VITALITY_MODEL, derivePipState } from './derive';
 import { isoDate, startOfDay } from './format';
 
 /** `at(0, 16, 0)` → today at 16:00. `at(-1, …)` → yesterday. */
@@ -46,32 +48,261 @@ export const SHOP_ITEMS: ShopItem[] = [
 ];
 
 /**
- * No seeded tasks, deliberately.
+ * A student's week, mid-flight.
  *
- * The Manifest starts empty because work in this app is supposed to ARRIVE —
- * captured, then processed, then committed. Shipping a pre-populated task list
- * would hand a first-time user five things they never wrote down, and quietly
- * skip the one flow the product is actually about. Everything below in `inbox`
- * is what a new user has instead.
+ * Four tasks, because a schedule is only interesting once two things compete
+ * for the same Tuesday afternoon: with one task on the list every plan is
+ * trivially "do it in order", and the thing this app has to get right — a
+ * midterm, a group deadline and a club night sharing one clock — never shows.
+ *
+ * Deliberately mid-flight rather than pristine. One step is already ticked
+ * (with a real `completedAt`, so today's rail can draw it in its own slot), one
+ * is handed to Arif, and the errand is due tonight. The four captures in
+ * `inbox` are untouched, so Capture → Inbox → Clarify → Review still runs
+ * end-to-end and commits its tasks *around* these.
+ *
+ * Shapes are varied on purpose so every affordance has somewhere to appear: a
+ * diamond, a straight chain with a delegated head, a second diamond, and one
+ * task with no steps at all.
  */
-const TASKS: Task[] = [];
+const TASKS: Task[] = [
+  {
+    id: 't_ds',
+    title: 'Study for the Data Structures midterm',
+    status: 'open',
+    categoryId: 'academics',
+    tag: '#Academics',
+    // The night before the paper. Everything under it has to be done by then —
+    // which is the whole reason the steps need dates of their own.
+    dueAt: at(6, 21),
+    estimateMin: 180,
+    load: 'high',
+    icon: 'BookOpen',
+    // Almost pure thinking against a clock. Nobody else can revise for you,
+    // which is why this task has no Delegate lever worth offering.
+    createdAt: at(-2, 19, 30),
+    completedAt: null,
+    subtasks: [
+      {
+        id: 'ds1',
+        title: 'Re-read lecture notes, weeks 1–6',
+        done: true,
+        // Ticked this morning, so Today's Focus opens with a finished block
+        // above the "now" line rather than a rail that starts in the future.
+        completedAt: at(0, 9, 40),
+        estimateMin: 45,
+        dependsOn: [],
+        delegatedTo: null,
+      },
+      {
+        id: 'ds2',
+        title: 'Redo the tutorial problem sets',
+        done: false,
+        completedAt: null,
+        estimateMin: 50,
+        dependsOn: ['ds1'],
+        delegatedTo: null,
+      },
+      {
+        id: 'ds3',
+        title: 'Write a one-page cheat sheet',
+        done: false,
+        completedAt: null,
+        estimateMin: 35,
+        dependsOn: ['ds1'],
+        delegatedTo: null,
+      },
+      {
+        id: 'ds4',
+        // The one step that is worthless done early: it only measures anything
+        // once the revision and the cheat sheet are both behind it.
+        title: 'Sit a past-year paper under timed conditions',
+        done: false,
+        completedAt: null,
+        estimateMin: 50,
+        dependsOn: ['ds2', 'ds3'],
+        delegatedTo: null,
+      },
+    ],
+    notes: 'Closed book, one A4 sheet allowed. Trees and hashing carry the most marks.',
+    resources: [],
+    pipNote:
+      'The past-year paper is the only step that tells you anything — everything before it is setup. Guard the slot for it.',
+  },
+  {
+    id: 't_se',
+    title: 'Finish the Software Engineering group assignment',
+    status: 'open',
+    categoryId: 'academics',
+    tag: '#Coursework',
+    dueAt: at(3, 17),
+    estimateMin: 125,
+    load: 'medium',
+    icon: 'Code',
+    // Group work: a third of its weight is other people. That social share is
+    // what makes Delegate the right lever here and the wrong one for the midterm.
+    createdAt: at(-3, 14),
+    completedAt: null,
+    subtasks: [
+      {
+        id: 'se1',
+        title: 'Write the API design section',
+        done: false,
+        completedAt: null,
+        estimateMin: 60,
+        dependsOn: [],
+        // Handed to Arif, the one balanced teammate. His hours leave the
+        // student's Pressure, but the section still gates the merge.
+        delegatedTo: 'tm1',
+      },
+      {
+        id: 'se2',
+        title: "Merge everyone's sections into one document",
+        done: false,
+        completedAt: null,
+        estimateMin: 25,
+        dependsOn: ['se1'],
+        delegatedTo: null,
+      },
+      {
+        id: 'se3',
+        title: 'Proofread against the marking rubric',
+        done: false,
+        completedAt: null,
+        estimateMin: 30,
+        dependsOn: ['se2'],
+        delegatedTo: null,
+      },
+      {
+        id: 'se4',
+        title: 'Submit to the course portal',
+        done: false,
+        completedAt: null,
+        estimateMin: 10,
+        dependsOn: ['se3'],
+        delegatedTo: null,
+      },
+    ],
+    resources: [],
+  },
+  {
+    id: 't_club',
+    title: "Run the club's recruitment night",
+    status: 'open',
+    categoryId: 'club',
+    tag: '#Leadership',
+    dueAt: at(5, 19),
+    estimateMin: 120,
+    load: 'medium',
+    icon: 'Users',
+    // Chasing, confirming, being answerable — the club night is mostly social
+    // load wearing a project's clothes.
+    createdAt: at(-4, 21),
+    completedAt: null,
+    subtasks: [
+      {
+        id: 'cl1',
+        title: 'Draft the run-of-show',
+        done: false,
+        completedAt: null,
+        estimateMin: 40,
+        dependsOn: [],
+        delegatedTo: null,
+      },
+      {
+        id: 'cl2',
+        title: 'Book the lecture hall',
+        done: false,
+        completedAt: null,
+        estimateMin: 20,
+        dependsOn: ['cl1'],
+        delegatedTo: null,
+      },
+      {
+        id: 'cl3',
+        title: 'Design the poster',
+        done: false,
+        completedAt: null,
+        estimateMin: 45,
+        dependsOn: ['cl1'],
+        delegatedTo: null,
+      },
+      {
+        id: 'cl4',
+        // Waits on BOTH: announcing a night with no room, or a room with no
+        // poster, is how a recruitment night gets eleven people.
+        title: 'Post the announcement to the club Instagram',
+        done: false,
+        completedAt: null,
+        estimateMin: 15,
+        dependsOn: ['cl2', 'cl3'],
+        delegatedTo: null,
+      },
+    ],
+    resources: [],
+  },
+  {
+    id: 't_groceries',
+    title: 'Restock groceries for the week',
+    status: 'open',
+    categoryId: 'errands',
+    dueAt: at(0, 19),
+    estimateMin: 20,
+    load: 'low',
+    icon: 'ShoppingCart',
+    // Cheap to think about, expensive to actually go and do — which is exactly
+    // the shape of work the Delegate lever exists for.
+    createdAt: at(0, 7, 50),
+    completedAt: null,
+    // No steps on purpose. One errand is one block, and it is what proves the
+    // rail can carry a whole task rather than only sub-tasks.
+    subtasks: [],
+    resources: [],
+  },
+];
+
+/** The four sub-stats blended through the shipped model. */
+function blend(v: Record<VitalId, number>): number {
+  const w = DEFAULT_VITALITY_MODEL.weights;
+  return Math.round(v.rest * w.rest + v.mood * w.mood + v.physical * w.physical + v.social * w.social);
+}
 
 /**
- * Six closed days behind today. Four consecutive balanced days sit at the end,
- * which is what the streak row reads — the frame's "5 consecutive days" is that
- * run plus today, and it now goes up or down with what actually happens.
+ * Six closed days behind today.
+ *
+ * Authored as SUB-STATS, with the day's Vitality and Pip state computed from
+ * them by the same functions the app uses — so the history cannot say something
+ * the model would disagree with, and changing a weight re-writes the past
+ * correctly instead of leaving six hand-typed numbers behind.
+ *
+ * The week tells a specific story on purpose: a rough start (two short nights),
+ * a solid recovery, and underneath it a Social Connection score sliding from 72
+ * to 44 the whole time. That is the shape the detail page exists to catch — the
+ * one sub-stat quietly falling while the headline number looks fine.
  */
 const HISTORY: DayRecord[] = [
-  { offset: -6, pressure: 62, vitality: 58, tasksCompleted: 1, state: 'strained' as const },
-  { offset: -5, pressure: 71, vitality: 52, tasksCompleted: 0, state: 'wilting' as const },
-  { offset: -4, pressure: 44, vitality: 74, tasksCompleted: 3, state: 'balanced' as const },
-  { offset: -3, pressure: 38, vitality: 79, tasksCompleted: 2, state: 'balanced' as const },
-  { offset: -2, pressure: 41, vitality: 77, tasksCompleted: 2, state: 'balanced' as const },
-  { offset: -1, pressure: 35, vitality: 81, tasksCompleted: 4, state: 'balanced' as const },
-].map(({ offset, ...rest }) => {
+  { offset: -6, pressure: 62, tasksCompleted: 1, vitals: { rest: 62, mood: 58, physical: 66, social: 72 } },
+  { offset: -5, pressure: 71, tasksCompleted: 0, vitals: { rest: 51, mood: 52, physical: 64, social: 70 } },
+  { offset: -4, pressure: 44, tasksCompleted: 3, vitals: { rest: 74, mood: 70, physical: 67, social: 66 } },
+  { offset: -3, pressure: 38, tasksCompleted: 2, vitals: { rest: 80, mood: 76, physical: 70, social: 61 } },
+  { offset: -2, pressure: 41, tasksCompleted: 2, vitals: { rest: 77, mood: 78, physical: 69, social: 55 } },
+  { offset: -1, pressure: 35, tasksCompleted: 4, vitals: { rest: 75, mood: 79, physical: 70, social: 49 } },
+].map(({ offset, vitals, ...rest }) => {
   const d = startOfDay(new Date());
   d.setDate(d.getDate() + offset);
-  return { date: isoDate(d), ...rest };
+  const vitality = blend(vitals);
+  return {
+    date: isoDate(d),
+    ...rest,
+    vitality,
+    vitals,
+    state: derivePipState({
+      pressure: rest.pressure,
+      vitality,
+      pressureNote: '',
+      vitalityNote: '',
+    }).name,
+  };
 });
 
 /** Seven closed days ending yesterday, oldest first — a teammate's week. */
@@ -169,6 +400,9 @@ export function seedData(): AppData {
       equipped: null,
       streakGoal: 7,
     },
+    // Cloned, because these are the *initial value* of mutable state and the
+    // module-level constant must not be edited out from under a reload.
+    categories: DEFAULT_CATEGORIES.map((c) => ({ ...c, match: [...c.match] })),
     tasks: TASKS.map((t) => ({ ...t, subtasks: t.subtasks.map((s) => ({ ...s })) })),
     teammates: TEAMMATES.map((m) => ({ ...m, week: m.week.map((d) => ({ ...d })) })),
     /**
@@ -234,7 +468,11 @@ export function seedData(): AppData {
           'I need to write the event proposal, submit it for formal faculty approval, and book ' +
           'the venue before other clubs take the slots. Nothing else can move forward until the ' +
           'venue and permits are secured.',
-        kind: 'text',
+        // Dictated, not typed. The transcript lives in `text` like any other
+        // note, so triage treats it identically — the only difference the app
+        // draws is the duration chip on the Inbox row.
+        kind: 'voice',
+        durationSec: 23,
         attachments: [],
         createdAt: at(-1, 21, 10),
       },
@@ -252,15 +490,46 @@ export function seedData(): AppData {
         createdAt: at(-1, 22, 35),
       },
     ],
+    /**
+     * Today's four readings.
+     *
+     * Deliberately not four healthy numbers. Three sit at or above this user's
+     * marks and Social Connection sits sixteen points below its own — which is
+     * the only configuration that gives the detail page something true to
+     * explain, and the one a headline Vitality of 68 would otherwise hide.
+     */
     vitals: [
-      { id: 'sleep', label: 'Sleep', value: 84, note: 'High recovery reserves thanks to 7.8 hrs sleep.' },
-      { id: 'focus', label: 'Focus', value: 72, note: 'Two deep-work blocks logged before noon.' },
+      {
+        id: 'rest',
+        label: 'Rest & Sleep',
+        value: 71,
+        note: '6h 40m last night, after a 7h 30m average earlier in the week.',
+      },
+      {
+        id: 'mood',
+        label: 'Mood & Stress',
+        value: 76,
+        note: 'Check-ins have been steady-to-positive for four days.',
+      },
+      {
+        id: 'physical',
+        label: 'Physical Vitality',
+        value: 68,
+        note: 'Two sessions and roughly 6,200 steps a day this week.',
+      },
+      {
+        id: 'social',
+        label: 'Social Connection',
+        value: 44,
+        note: 'No shared time logged in six days — the longest gap this month.',
+      },
     ],
+    vitalityModel: DEFAULT_VITALITY_MODEL,
     history: HISTORY,
     shop: SHOP_ITEMS,
     notifications: [
-      // Copy here must not name tasks: the Manifest starts empty, and a nudge
-      // about overdue library books with nothing on the list reads as a bug.
+      // Copy stays about the queue rather than about any one task: a nudge
+      // that names work the user may already have ticked reads as a bug.
       {
         id: 'n1',
         kind: 'nudge',

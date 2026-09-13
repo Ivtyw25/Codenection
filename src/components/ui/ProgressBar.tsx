@@ -8,6 +8,8 @@ export interface ProgressBarProps {
   /** 0–100. Values outside the range are clamped. */
   value: number;
   tone?: 'brand' | 'warning' | 'danger' | 'success';
+  /** Override the fill colour outright. Takes precedence over `tone`. */
+  fill?: string;
   height?: number;
   /** Override the track colour. Defaults to the scheme's alt surface. */
   track?: string;
@@ -21,6 +23,7 @@ const clamp = (v: number) => Math.max(0, Math.min(100, v));
 export function ProgressBar({
   value,
   tone = 'brand',
+  fill: fillOverride,
   height = 8,
   track,
   style,
@@ -29,7 +32,7 @@ export function ProgressBar({
   const scheme = useScheme();
   const motion = useMotion();
 
-  const fill = tone === 'brand' ? scheme.primary : status[tone].solid;
+  const fill = fillOverride ?? (tone === 'brand' ? scheme.primary : status[tone].solid);
   const progress = useSharedValue(clamp(value));
 
   useEffect(() => {

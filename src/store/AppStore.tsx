@@ -24,6 +24,7 @@ import * as api from '@/data/api';
 import { uid } from '@/data/api';
 import { formatBytes } from '@/data/attachments';
 import { isBlocked } from '@/data/derive';
+import { slugify } from '@/data/categories';
 import { isoDate } from '@/data/format';
 import type {
   AppData,
@@ -32,6 +33,9 @@ import type {
   CaptureId,
   CaptureKind,
   CaptureReview,
+  Category,
+  CategoryId,
+  IconName,
   ProposedTask,
   Resource,
   Settings,
@@ -76,7 +80,7 @@ export interface AppState {
 
 function initialQuery(): TaskQuery {
   return {
-    context: 'all',
+    categoryId: 'all',
     range: 'today',
     sort: 'due',
     hideDone: false,
@@ -100,7 +104,7 @@ type Action =
   | { type: 'boot/ok'; data: AppData }
   | { type: 'boot/fail'; error: string }
   | { type: 'task/toggle'; id: TaskId; at: string }
-  | { type: 'task/toggleSub'; id: TaskId; subId: SubTaskId }
+  | { type: 'task/toggleSub'; id: TaskId; subId: SubTaskId; at: string }
   | {
       type: 'task/addSub';
       id: TaskId;
@@ -113,6 +117,9 @@ type Action =
   | { type: 'task/patch'; id: TaskId; patch: Partial<Task> }
   | { type: 'task/remove'; id: TaskId }
   | { type: 'task/add'; tasks: Task[] }
+  | { type: 'category/add'; label: string; icon: IconName }
+  | { type: 'category/patch'; id: CategoryId; patch: Partial<Omit<Category, 'id'>> }
+  | { type: 'category/archive'; id: CategoryId; on: boolean }
   | { type: 'query/set'; patch: Partial<TaskQuery> }
   | {
       type: 'inbox/add';
@@ -168,13 +175,22 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         data: mapTask(data, action.id, (t) =>
           t.status === 'done'
-            ? { ...t, status: 'open', completedAt: null }
+            ? {
+                ...t,
+                status: 'open',
+                completedAt: null,
+                // Re-opening clears the step stamps too, or the timeline would
+                // go on drawing an open task's work in this morning's slots.
+                subtasks: t.subtasks.map((s) => ({ ...s, done: false, completedAt: null })),
+              }
             : {
                 ...t,
                 status: 'done',
                 completedAt: action.at,
                 // Closing a parent closes what is left under it.
-                subtasks: t.subtasks.map((s) => ({ ...s, done: true })),
+                subtasks: t.subtasks.map((s) =>
+                  s.done ? s : { ...s, done: true, completedAt: action.at },
+                ),
               },
         ),
       };
@@ -192,7 +208,11 @@ function reducer(state: AppState, action: Action): AppState {
       const next = mapTask(data, action.id, (t) => ({
         ...t,
         subtasks: reopenDependents(
-          t.subtasks.map((s) => (s.id === action.subId ? { ...s, done: !s.done } : s)),
+          t.subtasks.map((s) =>
+            s.id === action.subId
+              ? { ...s, done: !s.done, completedAt: s.done ? null : action.at }
+              : s,
+          ),
           target.done ? [action.subId] : [],
         ),
       }));
@@ -225,6 +245,7 @@ function reducer(state: AppState, action: Action): AppState {
               estimateMin: action.estimateMin,
               dependsOn: action.dependsOn,
               delegatedTo: null,
+              completedAt: null,
             },
           ],
         })),
@@ -271,6 +292,67 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'task/add':
       return { ...state, data: { ...data, tasks: [...data.tasks, ...action.tasks] } };
+
+    case 'category/add': {
+      const id = slugify(
+        action.label,
+        data.categories.map((c) => c.id),
+      );
+      return {
+        ...state,
+        data: {
+          ...data,
+          categories: [
+            ...data.categories,
+            { id, label: action.label.trim(), icon: action.icon, match: [] },
+          ],
+        },
+      };
+    }
+
+    case 'category/patch':
+      return {
+        ...state,
+        data: {
+          ...data,
+          // The id never moves. A rename changes what the category is CALLED,
+          // and every task pointing at it keeps pointing at it — which is the
+          // whole reason tasks store an id and not a label.
+          categories: data.categories.map((c) =>
+            c.id === action.id ? { ...c, ...action.patch } : c,
+          ),
+        },
+      };
+
+    case 'category/archive': {
+      /*
+       * Retiring, not deleting.
+       *
+       * Deleting a category with history under it would silently rewrite what
+       * the user's last month was made of — Reflect would show a September
+       * that never happened. Archiving stops it being offered on new work and
+       * drops it out of the breakdown once nothing open carries it, while the
+       * record stays intact.
+       *
+       * The filter is reset if it was pointing here, or the Manifest would sit
+       * on an empty list with no visible reason why.
+       */
+      const query =
+        action.on && state.query.categoryId === action.id
+          ? { ...state.query, categoryId: 'all' as const }
+          : state.query;
+
+      return {
+        ...state,
+        query,
+        data: {
+          ...data,
+          categories: data.categories.map((c) =>
+            c.id === action.id ? { ...c, archived: action.on } : c,
+          ),
+        },
+      };
+    }
 
     case 'query/set':
       return { ...state, query: { ...state.query, ...action.patch } };
@@ -378,6 +460,12 @@ export interface AppApi {
   patchTask: (id: TaskId, patch: Partial<Task>) => void;
   removeTask: (id: TaskId) => void;
 
+  /** Categories are the user's own — they can add, rename and retire them. */
+  addCategory: (label: string, icon: IconName) => void;
+  patchCategory: (id: CategoryId, patch: Partial<Omit<Category, 'id'>>) => void;
+  /** Retire (or restore) a category without touching the work filed under it. */
+  archiveCategory: (id: CategoryId, on: boolean) => void;
+
   setQuery: (patch: Partial<TaskQuery>) => void;
 
   setReview: (review: CaptureReview | null) => void;
@@ -446,7 +534,7 @@ function reopenDependents(subtasks: SubTask[], reopened: SubTaskId[]): SubTask[]
       if (!s.done || !s.dependsOn.some((d) => open.has(d))) return s;
       open.add(s.id);
       changed = true;
-      return { ...s, done: false };
+      return { ...s, done: false, completedAt: null };
     });
   }
 
@@ -454,17 +542,18 @@ function reopenDependents(subtasks: SubTask[], reopened: SubTaskId[]): SubTask[]
 }
 
 function materialise(p: ProposedTask, resources: Resource[]): Task {
+  const now = new Date().toISOString();
   return {
     id: uid('t'),
     title: p.title,
-    status: 'open',
-    context: p.context,
+    status: p.completeNow ? 'done' : 'open',
+    categoryId: p.categoryId,
     dueAt: p.dueAt,
     estimateMin: p.estimateMin,
     load: p.load,
     icon: p.icon,
-    createdAt: new Date().toISOString(),
-    completedAt: null,
+    createdAt: now,
+    completedAt: p.completeNow ? now : null,
     // Proposal-local ids exist only so a proposal can express "this waits on
     // that". Mint the real ids first, then rewrite the edges through that map,
     // so dependencies survive the crossing from proposal to task.
@@ -473,12 +562,13 @@ function materialise(p: ProposedTask, resources: Resource[]): Task {
       return p.subtasks.map((s) => ({
         id: realId.get(s.id)!,
         title: s.title,
-        done: false,
+        done: Boolean(p.completeNow),
         estimateMin: s.estimateMin,
         dependsOn: s.dependsOn
           .map((d) => realId.get(d))
           .filter((id): id is string => Boolean(id)),
         delegatedTo: s.delegatedTo ?? null,
+        completedAt: p.completeNow ? now : null,
       }));
     })(),
     resources,
@@ -525,7 +615,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       reload,
 
       toggleTask: (id) => dispatch({ type: 'task/toggle', id, at: new Date().toISOString() }),
-      toggleSubtask: (taskId, subId) => dispatch({ type: 'task/toggleSub', id: taskId, subId }),
+      toggleSubtask: (taskId, subId) =>
+        dispatch({ type: 'task/toggleSub', id: taskId, subId, at: new Date().toISOString() }),
       addSubtask: (taskId, title, options) =>
         dispatch({
           type: 'task/addSub',
@@ -540,6 +631,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'review/delegate', proposalId, subId, to }),
       patchTask: (id, patch) => dispatch({ type: 'task/patch', id, patch }),
       removeTask: (id) => dispatch({ type: 'task/remove', id }),
+
+      addCategory: (label, icon) => dispatch({ type: 'category/add', label, icon }),
+      patchCategory: (id, patch) => dispatch({ type: 'category/patch', id, patch }),
+      archiveCategory: (id, on) => dispatch({ type: 'category/archive', id, on }),
 
       setQuery: (patch) => dispatch({ type: 'query/set', patch }),
 

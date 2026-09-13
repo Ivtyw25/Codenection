@@ -13,18 +13,17 @@ import {
 import { FilterDrawer, ForestHeader, TaskCard, onForest } from '@/components/app';
 import { EmptyState, IconButton, Interactive, SegmentedTabs, Txt } from '@/components/ui';
 import {
-  contextLabel,
   dayInitial,
   formatDayPill,
   formatFullDate,
   isoDate,
   startOfDay,
-  weekOf,
+  weekFrom,
 } from '@/data/format';
 import { useApp } from '@/store/AppStore';
-import { useContextCounts, useNow, useTaskList } from '@/store/selectors';
+import { useCategories, useCategoryCounts, useNow, useTaskList } from '@/store/selectors';
 import { brand, radius, space, status, useScheme } from '@/theme';
-import type { ContextFilter, RangeFilter } from '@/types';
+import type { RangeFilter } from '@/types';
 
 const RANGES: { value: RangeFilter; label: string }[] = [
   { value: 'today', label: 'Today' },
@@ -33,7 +32,51 @@ const RANGES: { value: RangeFilter; label: string }[] = [
   { value: 'all', label: 'Everything' },
 ];
 
-const CONTEXTS: ContextFilter[] = ['all', '@academics', '@club', '@internship', '@errands', '@personal'];
+/*
+ * The filter row used to be a hardcoded list of five contexts.
+ *
+ * It is now built from `useCategories()`, because the categories are the
+ * user's: someone who added "Placement" gets a Placement tab without the app
+ * shipping a new build, and someone who retired "Club" stops being offered it.
+ * "All" is the only fixed entry, and it is a pseudo-category rather than a real
+ * one — see `CategoryFilter`.
+ */
+
+/**
+ * The day a range actually points at.
+ *
+ * `inRange` reads "tomorrow" as the day AFTER the anchor, so the strip has to
+ * agree — otherwise the header highlights one day while the list below shows
+ * another. Every range except this one is anchored where it says it is.
+ */
+function focusDay(range: RangeFilter, anchor: Date): Date {
+  if (range !== 'tomorrow') return anchor;
+  const d = new Date(anchor);
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+/** The last day "This Week" reaches — `inRange` allows six days past the anchor. */
+function weekEnd(anchor: Date): Date {
+  const d = new Date(anchor);
+  d.setDate(d.getDate() + 6);
+  return d;
+}
+
+/** What the "Showing:" line says, per range. */
+function showingLabel(range: RangeFilter, anchor: Date): string {
+  if (range === 'all') return 'Everything';
+  if (range === 'week') return `${formatFullDate(anchor)} – ${formatFullDate(weekEnd(anchor))}`;
+  return formatFullDate(focusDay(range, anchor));
+}
+
+/** The screen title, which is the same statement as the range tabs. */
+function headline(range: RangeFilter, anchor: Date, now: Date): string {
+  if (range === 'all') return 'Everything';
+  if (range === 'week') return 'This Week';
+  if (isoDate(anchor) !== isoDate(now)) return 'Manifest';
+  return range === 'tomorrow' ? "Tomorrow's Manifest" : "Today's Manifest";
+}
 
 /**
  * Today's Manifest — SCR-11.
@@ -50,12 +93,13 @@ export default function TasksScreen() {
 
   const { state, setQuery, toggleTask, toggleSubtask, toast } = useApp();
   const tasks = useTaskList();
-  const counts = useContextCounts();
+  const counts = useCategoryCounts();
+  const categories = useCategories();
 
   const [filterOpen, setFilterOpen] = useState(false);
 
   const anchor = useMemo(() => startOfDay(state.query.anchor), [state.query.anchor]);
-  const week = useMemo(() => weekOf(anchor), [anchor]);
+  const week = useMemo(() => weekFrom(anchor), [anchor]);
 
   const shiftDay = useCallback(
     (delta: number) => {
@@ -83,7 +127,20 @@ export default function TasksScreen() {
     [toggleTask, toast],
   );
 
-  const filtered = state.query.context !== 'all' || state.query.range !== 'today';
+  const filtered = state.query.categoryId !== 'all' || state.query.range !== 'today';
+
+  /*
+   * How the strip marks the range.
+   *
+   * "This Week" bands the whole row rather than picking a day, because the
+   * range genuinely covers all of them; "Everything" marks nothing, because it
+   * belongs to no day at all. The other two mark exactly the day they filter to.
+   */
+  const banded = state.query.range === 'week';
+  const marked =
+    state.query.range === 'today' || state.query.range === 'tomorrow'
+      ? isoDate(focusDay(state.query.range, anchor))
+      : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: scheme.ground }}>
@@ -131,13 +188,18 @@ export default function TasksScreen() {
           </View>
 
           <Txt variant="h1" color={onForest.primary} style={{ marginTop: space[3] }}>
-            {isoDate(anchor) === isoDate(now) ? "Today's Manifest" : 'Manifest'}
+            {headline(state.query.range, anchor, now)}
           </Txt>
 
-          {/* Week strip — the seven days around the anchor. */}
-          <View style={styles.week}>
+          {/* Week strip — seven days from the anchor, marked per range. */}
+          <View
+            style={[
+              styles.week,
+              banded && { backgroundColor: onForest.primary, borderRadius: radius.md },
+            ]}
+          >
             {week.map((day) => {
-              const selected = isoDate(day) === isoDate(anchor);
+              const lit = banded || isoDate(day) === marked;
               const today = isoDate(day) === isoDate(now);
 
               return (
@@ -149,18 +211,21 @@ export default function TasksScreen() {
                     month: 'long',
                     day: 'numeric',
                   })}
-                  selected={selected}
+                  selected={lit && !banded}
                   onPress={() => {
                     Haptics.selectionAsync().catch(() => {});
-                    setQuery({ anchor: isoDate(day) });
+                    // Picking a day is a statement about THAT day, so the range
+                    // narrows to it. Without this, tapping Wednesday while the
+                    // range is "Tomorrow" would light up Thursday.
+                    setQuery({ anchor: isoDate(day), range: 'today' });
                   }}
                   radius="md"
-                  style={[styles.day, selected && { backgroundColor: onForest.primary }]}
+                  style={[styles.day, lit && !banded && { backgroundColor: onForest.primary }]}
                 >
-                  <Txt variant="caption" color={selected ? scheme.textMuted : onForest.muted}>
+                  <Txt variant="caption" color={lit ? scheme.textMuted : onForest.muted}>
                     {dayInitial(day)}
                   </Txt>
-                  <Txt variant="h4" color={selected ? brand.forest : onForest.primary}>
+                  <Txt variant="h4" color={lit ? brand.forest : onForest.primary}>
                     {day.getDate()}
                   </Txt>
                   <View
@@ -187,7 +252,7 @@ export default function TasksScreen() {
         <View style={styles.body}>
           <View style={styles.showing}>
             <Txt variant="bodySm" muted>
-              Showing: {formatFullDate(anchor)}
+              Showing: {showingLabel(state.query.range, anchor)}
             </Txt>
 
             {isoDate(anchor) !== isoDate(now) ? (
@@ -207,14 +272,22 @@ export default function TasksScreen() {
           </View>
 
           <SegmentedTabs
-            options={CONTEXTS.map((value) => ({
-              value,
-              label: value === 'all' ? 'All' : contextLabel(value),
-              count: counts[value] ?? 0,
-              disabled: value !== 'all' && (counts[value] ?? 0) === 0,
-            }))}
-            value={state.query.context}
-            onChange={(context) => setQuery({ context })}
+            options={[
+              { value: 'all', label: 'All', count: counts.all ?? 0, disabled: false },
+              ...categories.map((category) => ({
+                value: category.id,
+                label: category.label,
+                count: counts[category.id] ?? 0,
+                // A category with nothing in the active range is shown but
+                // inert: hiding it would make the row's contents jump around
+                // as the date strip moves, and a row that reshuffles under you
+                // is exactly the kind of small instability this screen exists
+                // to avoid.
+                disabled: (counts[category.id] ?? 0) === 0,
+              })),
+            ]}
+            value={state.query.categoryId}
+            onChange={(categoryId) => setQuery({ categoryId })}
           />
 
           <View style={{ gap: space[3], marginTop: space[3] }}>
@@ -239,12 +312,12 @@ export default function TasksScreen() {
               title={filtered ? 'Nothing matches this filter' : 'Nothing scheduled'}
               body={
                 filtered
-                  ? `No tasks for ${formatFullDate(anchor)} in this context.`
+                  ? `No tasks for ${showingLabel(state.query.range, anchor)} in this context.`
                   : `${formatFullDate(anchor)} is clear. Capture something, or enjoy it.`
               }
               action={
                 filtered
-                  ? { label: 'Clear filters', onPress: () => setQuery({ context: 'all', range: 'all' }) }
+                  ? { label: 'Clear filters', onPress: () => setQuery({ categoryId: 'all', range: 'all' }) }
                   : { label: 'Capture a thought', onPress: () => router.push('/capture') }
               }
             />

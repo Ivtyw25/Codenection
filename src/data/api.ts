@@ -17,10 +17,12 @@ import type {
   IconName,
   ProposedSubTask,
   ProposedTask,
-  TaskContext,
+  Category,
   TaskLoad,
 } from '@/types';
 import { SEEDED_BREAKDOWNS } from './breakdowns';
+import { matchCategory } from './categories';
+import { applyAnswers } from './clarify';
 import { seedData } from './seed';
 import { startOfDay } from './format';
 
@@ -57,17 +59,14 @@ export async function bootstrap(): Promise<AppData> {
 
 // ── Capture parsing ─────────────────────────────────────────────────────────
 
-/**
- * Keyword → context. Deliberately a visible table rather than a model: the
- * point is that the Review sheet reflects what was actually typed, so the
- * mapping has to be inspectable when it guesses wrong.
+/*
+ * Where the keyword→category table used to live.
+ *
+ * It is now `match` on each `Category`, in `src/data/categories.ts` — because
+ * the categories themselves are the user's, and a routing table the app owned
+ * privately could not be corrected by the person whose notes it was misfiling.
+ * `matchCategory` does the scoring.
  */
-const CONTEXT_HINTS: [TaskContext, RegExp][] = [
-  ['@academics', /\b(assignment|problem set|pset|lecture|exam|paper|essay|study|prof|professor|class|homework|revision|thesis|lab)\b/i],
-  ['@club', /\b(club|society|committee|venue|workshop|event|meeting|gdsc|booking|member)\b/i],
-  ['@internship', /\b(internship|intern|resume|cv|standup|sprint|ticket|deploy|pr\b|client|manager|interview)\b/i],
-  ['@errands', /\b(buy|pick up|groceries|laundry|detergent|return|post|bank|pharmacy|shop|collect)\b/i],
-];
 
 const ICON_HINTS: [IconName, RegExp][] = [
   ['Mail', /\b(email|e-mail|reply|message|write to|contact)\b/i],
@@ -172,7 +171,11 @@ const QUICK_WIN = /\b(reply|text|confirm|rsvp|say|send a quick|ping|acknowledge|
  * Deliberately module-private. Capture no longer parses on the way in — this
  * runs once, later, over a whole batch, from `processInbox`.
  */
-function parseNote(note: CaptureNote, now: Date): { proposed: ProposedTask[]; quickWin: CaptureReview['quickWin'] } {
+function parseNote(
+  note: CaptureNote,
+  now: Date,
+  categories: Category[],
+): { proposed: ProposedTask[]; quickWin: CaptureReview['quickWin'] } {
   const trimmed = note.text.trim();
 
   const parts = clauses(trimmed);
@@ -191,9 +194,9 @@ function parseNote(note: CaptureNote, now: Date): { proposed: ProposedTask[]; qu
 
     const { minutes, load } = estimateFor(part);
     // Only a date stated in *this* clause counts. Falling back to a date found
-    // anywhere in the note reads as confident extraction but is a guess, and it
-    // suppresses the "Calibrate later" chip that exists precisely to say "I
-    // couldn't tell". Better to admit the gap than to invent a deadline.
+    // anywhere in the note reads as confident extraction but is a guess. A task
+    // with no stated deadline gets none, and the planner spreads it over the
+    // default horizon instead — admitting the gap rather than inventing one.
     const dueAt = parseDue(part, now);
 
     // A clause that splits no further is one action, and manufacturing a single
@@ -214,14 +217,12 @@ function parseNote(note: CaptureNote, now: Date): { proposed: ProposedTask[]; qu
       id: uid('p'),
       sourceId: note.id,
       title: titleCase(part.slice(0, 120)),
-      context: firstMatch(CONTEXT_HINTS, part, '@personal'),
+      categoryId: matchCategory(categories, part),
       dueAt,
       estimateMin: minutes,
       load,
       icon: firstMatch(ICON_HINTS, part, 'Sparkles'),
       subtasks,
-      // No date in the text — the frames' blue "Calibrate later" hint.
-      calibrateLater: dueAt == null,
     });
   }
 
@@ -241,7 +242,9 @@ function parseNote(note: CaptureNote, now: Date): { proposed: ProposedTask[]; qu
  */
 export async function processInbox(
   notes: CaptureNote[],
+  categories: Category[],
   now: Date = new Date(),
+  answers: Record<string, string> = {},
 ): Promise<CaptureReview> {
   await sleep(jitter(1400));
   consumeFailure("Pip couldn't structure those. Your notes are safe — try again.");
@@ -263,18 +266,22 @@ export async function processInbox(
       continue;
     }
 
-    const result = parseNote(note, now);
+    const result = parseNote(note, now, categories);
     proposed.push(...result.proposed);
     quickWin = quickWin ?? result.quickWin;
   }
 
   const sourceIds: CaptureId[] = notes.map((n) => n.id);
+  // The clarification pass is what makes these proposals specific rather than
+  // plausible — it drops steps the user says are done, moves dates they know,
+  // and marks what someone else can take.
+  const answered = applyAnswers(proposed, answers);
 
   return {
     sourceIds,
-    proposed,
+    proposed: answered,
     quickWin,
-    sparksReward: 10 + proposed.length * 5 + (quickWin ? 5 : 0),
+    sparksReward: 10 + answered.length * 5 + (quickWin ? 5 : 0),
   };
 }
 

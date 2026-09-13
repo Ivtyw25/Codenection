@@ -23,6 +23,7 @@ export type CaptureId = string;
 export type AttachmentId = string;
 export type NotificationId = string;
 export type TeammateId = string;
+export type CategoryId = string;
 
 /** Lucide icon names the app is allowed to render. Keeps data → icon total. */
 export type IconName =
@@ -34,16 +35,75 @@ export type IconName =
   | 'ShoppingCart'
   | 'Dumbbell'
   | 'Users'
-  | 'Sparkles';
+  | 'Sparkles'
+  | 'Briefcase'
+  | 'Heart'
+  | 'Home';
+
+// ── Categories ──────────────────────────────────────────────────────────────
+
+/**
+ * One of the things this student carries.
+ *
+ * STORED, and the user's own. This is the single most important consequence of
+ * the load model: the app does not decide what a life is made of. An earlier
+ * cut split every task across five fixed vectors — mental, time, physical,
+ * social, errands — and it was wrong twice over. It asked the app to invent
+ * five numbers per task that nobody could check, and it described a student's
+ * week in a vocabulary no student uses. Nobody says "my social vector is at
+ * 39%". They say "the club is eating me alive".
+ *
+ * So load decomposes across THESE — whatever the student actually has — and a
+ * category is a first-class row they can add, rename, retire, or reorder. A
+ * nursing student with placements and a CS student with an internship get
+ * genuinely different breakdowns rather than the same five bars with different
+ * numbers in them.
+ *
+ * `id` is stable and never rendered; `label` is what the user typed and may
+ * change under it. Nothing stores a label.
+ */
+export interface Category {
+  id: CategoryId;
+  /** What the user calls it. "Academics", "Placement", "Mum's stuff". */
+  label: string;
+  icon: IconName;
+  /**
+   * Words that route a fresh capture here.
+   *
+   * Plain strings rather than a RegExp so a category survives serialisation and
+   * so the user can see — and fix — exactly why their note landed where it did.
+   * `matchCategory` compiles them at call time.
+   */
+  match: string[];
+  /**
+   * Retired rather than deleted.
+   *
+   * Deleting a category the user has history under would silently rewrite what
+   * their last month was made of. An archived category stops being offered on
+   * new work and disappears from the breakdown once nothing open carries it,
+   * but Reflect can still say what October cost.
+   */
+  archived?: boolean;
+}
 
 // ── Tasks ───────────────────────────────────────────────────────────────────
 
-/** The @-prefixed contexts in the Manifest filter row. */
-export type TaskContext = '@academics' | '@club' | '@errands' | '@internship' | '@personal';
-
 export type TaskLoad = 'low' | 'medium' | 'high';
 
-export type TaskStatus = 'open' | 'done';
+/**
+ * `dropped` is a first-class outcome, not a deletion.
+ *
+ * The whole point of the Drop lever is to give someone permission to stop
+ * carrying something — and permission you have to hide the evidence of is not
+ * permission. A dropped task leaves Pressure immediately and stays in the
+ * record, so Weekly Reflect can show what was let go and what it bought. If
+ * dropping meant `removeTask`, the app would be asking students to delete proof
+ * of a decision it just told them was healthy.
+ */
+export type TaskStatus = 'open' | 'done' | 'dropped';
+
+/** The four ways to put something down. */
+export type Lever = 'drop' | 'breakdown' | 'delegate' | 'postpone';
 
 /**
  * One step of a task.
@@ -72,6 +132,16 @@ export interface SubTask {
    * step still blocks its dependents until someone marks it done.
    */
   delegatedTo?: TeammateId | null;
+  /**
+   * ISO-8601. When this step was actually ticked, or null while it is open.
+   *
+   * The one scheduling fact that is STORED, because it is the one that cannot
+   * be computed: `src/data/schedule.ts` derives where every *future* block
+   * sits, but nothing in the stored world remembers that the reading got done
+   * at 9:40 this morning. Today's timeline needs that to draw finished work in
+   * its real place rather than lumping it above the rail.
+   */
+  completedAt?: string | null;
 }
 
 export interface Resource {
@@ -88,7 +158,8 @@ export interface Task {
   id: TaskId;
   title: string;
   status: TaskStatus;
-  context: TaskContext;
+  /** Which of the user's own categories this belongs to. */
+  categoryId: CategoryId;
   /** Free tag shown as a filled chip — "#Leadership", "#Academics". */
   tag?: string;
   /**
@@ -107,15 +178,28 @@ export interface Task {
   icon: IconName;
   createdAt: string;
   completedAt: string | null;
+  /** When the student chose to stop carrying this. Null unless `dropped`. */
+  droppedAt?: string | null;
+  /** Why, in their own words or the reason they picked. Never required. */
+  dropReason?: string | null;
+  /**
+   * The deadline this task had before it was last postponed.
+   *
+   * Kept so the app can say "moved twice already" rather than letting a task
+   * slide forever one comfortable week at a time. Deferral is a real lever; an
+   * invisible deferral habit is how a backlog rots.
+   */
+  postponedFrom?: string | null;
+  postponeCount?: number;
 }
 
-/** What the Manifest filters by. `all` is the unfiltered pseudo-context. */
-export type ContextFilter = TaskContext | 'all';
+/** What the Manifest filters by. `all` is the unfiltered pseudo-category. */
+export type CategoryFilter = CategoryId | 'all';
 export type RangeFilter = 'today' | 'tomorrow' | 'week' | 'all';
 export type SortKey = 'due' | 'load' | 'created';
 
 export interface TaskQuery {
-  context: ContextFilter;
+  categoryId: CategoryFilter;
   range: RangeFilter;
   sort: SortKey;
   /** Hide completed tasks. */
@@ -192,19 +276,23 @@ export interface ProposedTask {
    */
   sourceId: CaptureId;
   title: string;
-  context: TaskContext;
+  categoryId: CategoryId;
   dueAt: string | null;
   estimateMin: number;
   load: TaskLoad;
   icon: IconName;
   subtasks: ProposedSubTask[];
-  /** Renders the blue "Calibrate later" hint chip. */
-  calibrateLater?: boolean;
   /**
    * Trivial enough for the 2-minute rule — renders under "Just do it now"
    * instead of among the breakdown cards. Still commits as a real task.
    */
   twoMinute?: boolean;
+  /**
+   * The user did it right there in the sheet. It still commits — a two-minute
+   * job that got done is a real thing that happened, and dropping it on the
+   * floor would lose the Spark and the completed-today count.
+   */
+  completeNow?: boolean;
 }
 
 /**
@@ -224,6 +312,31 @@ export interface ProposedSubTask {
   /** Pip thinks this could be handed off — drives the delegate section. */
   delegatable?: boolean;
   delegatedTo?: TeammateId | null;
+}
+
+// ── Clarification ───────────────────────────────────────────────────────────
+
+/**
+ * One thing Pip needs to know before it can break a capture down honestly.
+ *
+ * Every option changes the resulting proposal — see `applyAnswers` in
+ * `src/data/clarify.ts`. A question whose answers all produced the same
+ * breakdown would be a loading screen wearing a conversation's clothes.
+ */
+export interface ClarifyQuestion {
+  id: string;
+  sourceId: CaptureId;
+  /** Short label for which capture is being discussed. */
+  about: string;
+  prompt: string;
+  options: ClarifyOption[];
+}
+
+export interface ClarifyOption {
+  id: string;
+  label: string;
+  /** Pip's acknowledgement — says what this answer changed. */
+  reply: string;
 }
 
 /** The amber "Just do it now (2-minute rule)" card. */
@@ -260,6 +373,42 @@ export interface PipState {
  * Pressure is inverted — high is bad — which is why it renders amber while
  * Vitality renders green at comparable values.
  */
+/** One category's share of the load, ready to render. */
+export interface CategoryLoad {
+  categoryId: CategoryId;
+  /** Points of Pressure this category is carrying. */
+  value: number;
+  /** Its share of `total`, 0–100. What the bar's width is. */
+  share: number;
+  /** Open tasks behind it. */
+  taskCount: number;
+  /** Minutes of outstanding work behind it. */
+  minutes: number;
+}
+
+/**
+ * Pressure, decomposed across the categories the student actually has.
+ *
+ * The slices always sum to `total`, so this is a genuine breakdown of one
+ * number rather than a set of loosely related gauges — which is what makes it
+ * safe to show a depleted person. Five figures that add up to something other
+ * than the headline is the kind of small dishonesty that costs a wellbeing app
+ * all of its credibility at once.
+ *
+ * Only categories carrying something appear. An empty bar for a category you
+ * are not currently carrying is noise, and this screen's whole job is to have
+ * none.
+ *
+ * `hottest` is the category carrying the most, and it is what the Rebalancer
+ * reaches for first. Null when nothing is open.
+ */
+export interface PressureBreakdown {
+  total: number;
+  /** Descending by value. */
+  slices: CategoryLoad[];
+  hottest: CategoryId | null;
+}
+
 export interface Capacity {
   /** Workload Pressure, 0–100. Higher is worse. */
   pressure: number;
@@ -269,15 +418,83 @@ export interface Capacity {
   vitalityNote: string;
 }
 
-/** STORED. A daily reading from the integrations in SCR-07. */
+/**
+ * DERIVED. Where today lands if the day goes to plan.
+ *
+ * A gauge only says where you are; the question a student actually has at 9am
+ * is whether today's plan gets them anywhere. This answers it by running the
+ * same pressure and vitality functions over tomorrow morning, with today's
+ * scheduled blocks marked done — so the forecast is the promise the timeline is
+ * already making, priced.
+ */
+export interface Forecast {
+  pressure: number;
+  vitality: number;
+  /** Signed change from today's reading. */
+  pressureDelta: number;
+  vitalityDelta: number;
+  /** What the projection assumes, said plainly. */
+  note: string;
+}
+
+/** One sub-stat, resolved against the user's own model. */
+export interface VitalReading {
+  id: VitalId;
+  label: string;
+  value: number;
+  /** 0–1. */
+  weight: number;
+  /** This user's healthy mark for the stat. */
+  target: number;
+  /** Points this stat puts into the weighted base. */
+  contribution: number;
+  standing: VitalStanding;
+  /** Change since the oldest day in history. */
+  delta: number;
+  note: string;
+}
+
+/**
+ * The four things Vitality is actually made of.
+ *
+ * `pip-product-spec.md` §1: "how much rest and reserve the student has banked
+ * (sleep, mood, physical health, social connection)". Vitality is not a
+ * measurement of its own — it is these four, weighted. Splitting them out is
+ * what lets the app say *why* the reserve moved instead of only that it did.
+ */
+export type VitalId = 'rest' | 'physical' | 'mood' | 'social';
+
+/** STORED. One sub-stat's current reading. */
 export interface Vital {
-  id: 'sleep' | 'focus';
+  id: VitalId;
   label: string;
   /** 0–100. */
   value: number;
-  /** The sentence the Pip tab shows under the gauge. */
+  /** The sentence the detail page leads with. */
   note: string;
 }
+
+/**
+ * How the four sub-stats combine, and what counts as "good" FOR THIS USER.
+ *
+ * Both halves are personal. Six hours is a catastrophe for one student and
+ * normal for another, and someone who recharges alone should not be told their
+ * reserve is low because they saw nobody on Tuesday. Shipping one global
+ * threshold would make the score confidently wrong for most people.
+ *
+ * Defaults ship (see `DEFAULT_VITALITY_MODEL`); the spec's weekly calibration
+ * pass (§5.3) is what moves them, and nothing here prevents a user editing them
+ * directly. STORED, because a calibrated model is a fact about the person.
+ */
+export interface VitalityModel {
+  /** Per-sub-stat weight. Sums to 1. */
+  weights: Record<VitalId, number>;
+  /** The value this user reads as healthy for each sub-stat. */
+  targets: Record<VitalId, number>;
+}
+
+/** How a reading sits against this user's own target. */
+export type VitalStanding = 'strong' | 'fair' | 'low';
 
 /** STORED. One closed day — what Reflect reads and what the streak counts. */
 export interface DayRecord {
@@ -287,6 +504,14 @@ export interface DayRecord {
   vitality: number;
   tasksCompleted: number;
   state: PipStateName;
+  /**
+   * That day's four sub-stat readings.
+   *
+   * Optional because a teammate's shared week deliberately carries none — the
+   * delegation screen shows the shape of someone's week, never what their sleep
+   * was doing.
+   */
+  vitals?: Record<VitalId, number>;
 }
 
 // ── Teammates ───────────────────────────────────────────────────────────────
@@ -365,10 +590,14 @@ export interface AppData {
     /** Consecutive balanced days target for the dot row. */
     streakGoal: number;
   };
+  /** The things this student carries. Theirs to add to, rename and retire. */
+  categories: Category[];
   tasks: Task[];
   inbox: CaptureNote[];
   teammates: Teammate[];
   vitals: Vital[];
+  /** How `vitals` become one Vitality score, calibrated to this user. */
+  vitalityModel: VitalityModel;
   history: DayRecord[];
   shop: ShopItem[];
   notifications: AppNotification[];

@@ -11,16 +11,44 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   budgetAfter,
-  contextCounts,
+  categoryCounts,
   deriveCapacity,
   derivePipState,
+  derivePressureBreakdown,
   deriveStreak,
+  forecastAhead,
   nextAction,
   progress,
   queryTasks,
+  readVitals,
+  vitalSeries,
 } from '@/data/derive';
+import { activeCategories, findCategory } from '@/data/categories';
+import { explainVital, type VitalExplanation } from '@/data/explain';
+import {
+  buildSchedule,
+  plannedMinutes,
+  proposalToTask,
+  slotsOn,
+  taskSlots,
+  type Schedule,
+  type Slot,
+} from '@/data/schedule';
 import { useApp } from './AppStore';
-import type { Capacity, PipState, ProposedTask, Task, TaskId, Teammate } from '@/types';
+import type {
+  Capacity,
+  Category,
+  CategoryId,
+  CategoryLoad,
+  Forecast,
+  PipState,
+  ProposedTask,
+  Task,
+  TaskId,
+  Teammate,
+  VitalId,
+  VitalReading,
+} from '@/types';
 
 /**
  * A clock that ticks once a minute.
@@ -49,6 +77,64 @@ export function usePipState(): PipState {
   return useMemo(() => derivePipState(capacity), [capacity]);
 }
 
+// ── Vitality ────────────────────────────────────────────────────────────────
+
+/** The four sub-stats, resolved against this user's own model. */
+export function useVitals(): VitalReading[] {
+  const { data } = useApp();
+  return useMemo(
+    () => readVitals(data.vitals, data.vitalityModel, data.history),
+    [data.vitals, data.vitalityModel, data.history],
+  );
+}
+
+export function useVital(id: VitalId | undefined): VitalReading | null {
+  const readings = useVitals();
+  return useMemo(() => readings.find((r) => r.id === id) ?? null, [readings, id]);
+}
+
+/** One sub-stat's week, today included live. */
+export function useVitalSeries(id: VitalId | undefined) {
+  const { data } = useApp();
+  return useMemo(
+    () => (id ? vitalSeries(id, data.vitals, data.history) : []),
+    [id, data.vitals, data.history],
+  );
+}
+
+/** Why that sub-stat sits where it does, and what would move it. */
+export function useVitalExplanation(id: VitalId | undefined): VitalExplanation | null {
+  const reading = useVital(id);
+  const series = useVitalSeries(id);
+  const capacity = useCapacity();
+  return useMemo(
+    () => (reading ? explainVital(reading, series, capacity) : null),
+    [reading, series, capacity],
+  );
+}
+
+/**
+ * Where tomorrow lands if today's plan is followed.
+ *
+ * Only the student's own outstanding blocks count as "you will finish these" —
+ * a delegated step is not theirs to complete, and a forecast that assumed
+ * someone else's day would go to plan is making a promise on their behalf.
+ */
+export function useForecast(): Forecast {
+  const { data } = useApp();
+  const now = useNow();
+  const today = useTodayTimeline();
+  return useMemo(
+    () =>
+      forecastAhead(
+        data,
+        today.slots.filter((s) => !s.done && !s.delegatedTo).map((s) => s.subId),
+        now,
+      ),
+    [data, today.slots, now],
+  );
+}
+
 export function useStreak(): { days: number; goal: number } {
   const { data } = useApp();
   const pip = usePipState();
@@ -65,24 +151,66 @@ export function useTaskList(): Task[] {
   return useMemo(() => queryTasks(data.tasks, state.query, now), [data.tasks, state.query, now]);
 }
 
-/** Home's short list — the three most pressing open items. */
-export function useFocusTasks(limit = 3): Task[] {
-  const { data } = useApp();
-  const now = useNow();
-  return useMemo(
-    () =>
-      queryTasks(
-        data.tasks,
-        { context: 'all', range: 'today', sort: 'due', hideDone: true, anchor: now.toISOString() },
-        now,
-      ).slice(0, limit),
-    [data.tasks, now, limit],
-  );
+export function useCategoryCounts(): Record<string, number> {
+  const { data, state } = useApp();
+  return useMemo(() => categoryCounts(data.tasks, state.query), [data.tasks, state.query]);
 }
 
-export function useContextCounts(): Record<string, number> {
-  const { data, state } = useApp();
-  return useMemo(() => contextCounts(data.tasks, state.query), [data.tasks, state.query]);
+// ── Categories ──────────────────────────────────────────────────────────────
+
+/** Every category, retired ones included. For the editor and for history. */
+export function useAllCategories(): Category[] {
+  const { data } = useApp();
+  return data.categories;
+}
+
+/** The ones still offered on new work — filter rows, pickers, the breakdown. */
+export function useCategories(): Category[] {
+  const { data } = useApp();
+  return useMemo(() => activeCategories(data.categories), [data.categories]);
+}
+
+export function useCategory(id: CategoryId | undefined): Category | null {
+  const { data } = useApp();
+  return useMemo(() => (id ? findCategory(data.categories, id) : null), [data.categories, id]);
+}
+
+/**
+ * Pressure, split across the categories this student actually carries.
+ *
+ * Joined to the category rows here rather than in `derive.ts` so the pure
+ * function stays a pure group-by over task data: the breakdown's *numbers* are
+ * a fact about the task list, and its *labels* are a fact about the user's
+ * category table, and those two things change for different reasons.
+ *
+ * A slice whose category has since been archived still resolves — it keeps its
+ * stored label so the bar reads as work rather than as an orphaned id.
+ */
+export function useLoadBreakdown(): {
+  total: number;
+  slices: (CategoryLoad & { category: Category })[];
+  hottest: (CategoryLoad & { category: Category }) | null;
+} {
+  const { data } = useApp();
+  const now = useNow();
+
+  return useMemo(() => {
+    const breakdown = derivePressureBreakdown(data.tasks, now);
+    const slices = breakdown.slices.map((slice) => ({
+      ...slice,
+      category: findCategory(data.categories, slice.categoryId) ?? {
+        id: slice.categoryId,
+        label: slice.categoryId,
+        icon: 'Sparkles' as const,
+        match: [],
+      },
+    }));
+    return {
+      total: breakdown.total,
+      slices,
+      hottest: slices.find((s) => s.categoryId === breakdown.hottest) ?? null,
+    };
+  }, [data.tasks, data.categories, now]);
 }
 
 export function useTask(id: TaskId | undefined): Task | null {
@@ -112,36 +240,61 @@ export function useBudget(proposed: ProposedTask[]) {
   const { data } = useApp();
   const now = useNow();
   return useMemo(
-    () =>
-      budgetAfter(
-        data.tasks,
-        proposed.map((p) => ({
-          id: p.id,
-          title: p.title,
-          status: 'open' as const,
-          context: p.context,
-          dueAt: p.dueAt,
-          estimateMin: p.estimateMin,
-          load: p.load,
-          icon: p.icon,
-          createdAt: now.toISOString(),
-          completedAt: null,
-          // Carried through rather than flattened to []: pressure weights a
-          // task by the minutes still on the student's own plate, so a sheet
-          // that dropped the steps would promise the same number whether or
-          // not the 90-minute one had just been handed to someone else.
-          subtasks: p.subtasks.map((s) => ({
-            id: s.id,
-            title: s.title,
-            done: false,
-            estimateMin: s.estimateMin,
-            dependsOn: s.dependsOn,
-            delegatedTo: s.delegatedTo ?? null,
-          })),
-          resources: [],
-        })),
-        now,
-      ),
+    () => budgetAfter(data.tasks, proposed.map((p) => proposalToTask(p, now)), now),
+    [data.tasks, proposed, now],
+  );
+}
+
+// ── Schedule ────────────────────────────────────────────────────────────
+
+/**
+ * The whole plan, recomputed from the open task list and the clock.
+ *
+ * One schedule for the entire app rather than one per screen: Today's Focus and
+ * a task's own timeline have to agree about when Tuesday afternoon is spoken
+ * for, and they can only do that by reading the same object.
+ */
+export function useSchedule(): Schedule {
+  const { data } = useApp();
+  const now = useNow();
+  return useMemo(() => buildSchedule(data.tasks, now), [data.tasks, now]);
+}
+
+/** One task's steps, in plan order — Task Detail's rail. */
+export function useTaskTimeline(id: TaskId | undefined): Slot[] {
+  const task = useTask(id);
+  const schedule = useSchedule();
+  return useMemo(() => (task ? taskSlots(task, schedule) : []), [task, schedule]);
+}
+
+/**
+ * Everything scheduled for today, across every task, in clock order.
+ *
+ * Finished steps come back in their real place rather than being swept into a
+ * "done" bucket — `buildSchedule` reconstructs their block from `completedAt`,
+ * so the rail shows what the day actually was.
+ */
+export function useTodayTimeline(): { slots: Slot[]; plannedMin: number } {
+  const schedule = useSchedule();
+  const now = useNow();
+  return useMemo(() => {
+    const slots = slotsOn(schedule, now);
+    return { slots, plannedMin: plannedMinutes(slots) };
+  }, [schedule, now]);
+}
+
+/**
+ * When the proposed work would actually happen.
+ *
+ * Scheduled against the committed tasks, not in isolation — otherwise the sheet
+ * would promise Tuesday 9am for a step that already has the midterm revision in
+ * it, and the times would all move the instant the user pressed Add.
+ */
+export function useProposedTimeline(proposed: ProposedTask[]): Schedule {
+  const { data } = useApp();
+  const now = useNow();
+  return useMemo(
+    () => buildSchedule([...data.tasks, ...proposed.map((p) => proposalToTask(p, now))], now),
     [data.tasks, proposed, now],
   );
 }
@@ -173,3 +326,4 @@ export function useWeekSeries() {
 }
 
 export { nextAction, progress };
+export type { Slot } from '@/data/schedule';

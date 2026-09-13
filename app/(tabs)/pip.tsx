@@ -2,12 +2,27 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Coffee, Moon, Settings, ShoppingBag, Star, Users } from 'lucide-react-native';
+import { Settings, ShoppingBag, Star, Users } from 'lucide-react-native';
 
-import { ForestHeader, Gauge, PipMascot, onForest } from '@/components/app';
+import {
+  ForecastRow,
+  ForestHeader,
+  Gauge,
+  LoadBreakdown,
+  PipMascot,
+  VitalCard,
+  onForest,
+} from '@/components/app';
 import { Card, Chip, Drawer, EmptyState, IconButton, Interactive, Txt } from '@/components/ui';
 import { useApp } from '@/store/AppStore';
-import { useCapacity, usePipState, useStreak } from '@/store/selectors';
+import {
+  useCapacity,
+  useForecast,
+  useLoadBreakdown,
+  usePipState,
+  useStreak,
+  useVitals,
+} from '@/store/selectors';
 import { brand, radius, space, status, useScheme } from '@/theme';
 
 /** Diameter of the ambient glow behind the mascot. */
@@ -28,10 +43,13 @@ export default function PipScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { data, patchSettings, equip, toast } = useApp();
+  const { data, patchSettings, equip, toast, setQuery } = useApp();
   const capacity = useCapacity();
+  const forecast = useForecast();
   const pip = usePipState();
   const streak = useStreak();
+  const vitals = useVitals();
+  const breakdown = useLoadBreakdown();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
@@ -152,33 +170,67 @@ export default function PipScreen() {
               hint={capacity.vitalityNote}
               size="block"
             />
+
+            <ForecastRow
+              forecast={forecast}
+              pressure={capacity.pressure}
+              vitality={capacity.vitality}
+              size="block"
+            />
           </Card>
 
-          <Txt variant="h3" style={{ marginTop: space[5] }}>
-            Vitals &amp; Sub-stats
-          </Txt>
+          {/*
+            The mirror of Vitals below.
+
+            This tab explained the Vitality gauge in four sub-stats and left the
+            Pressure gauge as a bare number — so the half of the model a
+            stressed student can actually *change* was the unexplained half.
+            These are that explanation, in the categories they named themselves.
+          */}
+          <View style={styles.vitalsHead}>
+            <Txt variant="h3" style={{ flex: 1 }}>
+              Where the load sits
+            </Txt>
+            <Txt variant="caption" muted>
+              {breakdown.total} total
+            </Txt>
+          </View>
+          <Card>
+            <LoadBreakdown
+              total={breakdown.total}
+              slices={breakdown.slices}
+              onPressCategory={(categoryId) => {
+                setQuery({ categoryId, range: 'all' });
+                router.push('/tasks');
+              }}
+            />
+            {breakdown.hottest ? (
+              <Txt variant="bodySm" muted style={{ marginTop: space[3] }}>
+                {`${breakdown.hottest.category.label} is carrying most of this right now.`}
+              </Txt>
+            ) : null}
+          </Card>
+
+          <View style={styles.vitalsHead}>
+            <Txt variant="h3" style={{ flex: 1 }}>
+              Vitals &amp; Sub-stats
+            </Txt>
+            <Txt variant="caption" muted>
+              vs. your marks
+            </Txt>
+          </View>
+          {/*
+            The four things Vitality is actually made of, each against this
+            user's own mark rather than against 100. A single reserve number can
+            only say how much is left; these say which one is spending it.
+          */}
           <View style={styles.vitals}>
-            {data.vitals.map((vital) => (
-              <Card key={vital.id} style={styles.vitalCard}>
-                <View style={styles.vitalTop}>
-                  <View style={[styles.vitalIcon, { backgroundColor: scheme.surfaceAlt }]}>
-                    {vital.id === 'sleep' ? (
-                      <Moon size={16} color={scheme.primary} />
-                    ) : (
-                      <Coffee size={16} color={status.success.solid} />
-                    )}
-                  </View>
-                  <Txt
-                    variant="h4"
-                    color={vital.id === 'sleep' ? scheme.primary : status.success.fg}
-                  >
-                    {vital.value}%
-                  </Txt>
-                </View>
-                <Txt variant="caption" muted>
-                  {vital.label}
-                </Txt>
-              </Card>
+            {vitals.map((reading) => (
+              <VitalCard
+                key={reading.id}
+                reading={reading}
+                onPress={() => router.push({ pathname: '/vital/[id]', params: { id: reading.id } })}
+              />
             ))}
           </View>
 
@@ -353,9 +405,9 @@ const styles = StyleSheet.create({
   cardTitle: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   statusDot: { width: 9, height: 9, borderRadius: radius.pill },
 
-  vitals: { flexDirection: 'row', gap: space[2.5], marginTop: space[2.5] },
-  vitalCard: { flex: 1, gap: space[2] },
-  vitalTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  vitalsHead: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[5] },
+  /** Two up, wrapping — four sub-stats in one row is unreadable at 400px. */
+  vitals: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2.5], marginTop: space[2.5] },
   vitalIcon: {
     width: 30,
     height: 30,

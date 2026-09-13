@@ -1,36 +1,14 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import {
-  BookOpen,
-  CalendarDays,
-  ChevronRight,
-  Code,
-  Dumbbell,
-  FileText,
-  Mail,
-  ShoppingCart,
-  Sparkles,
-  Users,
-} from 'lucide-react-native';
+import { ChevronRight } from 'lucide-react-native';
 
 import { Card, Checkbox, Chip, Txt } from '@/components/ui';
-import { formatDue, formatEstimate, isOverdue } from '@/data/format';
+import { formatClock, formatDue, formatEstimate, isOverdue } from '@/data/format';
 import { loadPercent, nextAction, progress } from '@/data/derive';
+import { useSchedule } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
-import type { IconName, Task } from '@/types';
-
-/** The only place a stored `IconName` becomes a component. */
-const ICONS: Record<IconName, typeof Code> = {
-  CalendarDays,
-  Code,
-  FileText,
-  BookOpen,
-  Mail,
-  ShoppingCart,
-  Dumbbell,
-  Users,
-  Sparkles,
-};
+import type { Task } from '@/types';
+import { ICONS } from './TaskIcon';
 
 export interface TaskCardProps {
   task: Task;
@@ -59,9 +37,12 @@ export function TaskCard({
   now = new Date(),
 }: TaskCardProps) {
   const scheme = useScheme();
-  const Icon = ICONS[task.icon] ?? FileText;
+  const Icon = ICONS[task.icon] ?? ICONS.FileText;
+  const schedule = useSchedule();
 
   const next = nextAction(task);
+  // The card's own small share of the plan: not just what is next, but when.
+  const nextAt = next ? (schedule.get(next.id)?.startAt ?? null) : null;
   const { done, total } = progress(task);
   const overdue = task.status === 'open' && isOverdue(task.dueAt, now);
   const complete = task.status === 'done';
@@ -100,6 +81,7 @@ export function TaskCard({
       {next && !complete ? (
         <NextActionRow
           title={next.title}
+          at={nextAt}
           onPress={onToggleSubtask ? () => onToggleSubtask(next.id) : undefined}
         />
       ) : null}
@@ -138,12 +120,25 @@ export function TaskCard({
  * whole point of surfacing one sub-task is that it is the thing to do next —
  * making the user open the detail sheet to tick it defeats it.
  */
-function NextActionRow({ title, onPress }: { title: string; onPress?: () => void }) {
+function NextActionRow({
+  title,
+  at,
+  onPress,
+}: {
+  title: string;
+  at: string | null;
+  onPress?: () => void;
+}) {
   const scheme = useScheme();
 
   const body = (
     <View style={[styles.next, { backgroundColor: scheme.surfaceAlt }]}>
       <ChevronRight size={14} color={scheme.textMuted} />
+      {at ? (
+        <Txt variant="caption" color={scheme.primary}>
+          {formatClock(at)}
+        </Txt>
+      ) : null}
       <Txt variant="bodySm" muted numberOfLines={1} style={{ flex: 1 }}>
         {title}
       </Txt>
