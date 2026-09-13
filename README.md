@@ -104,111 +104,13 @@ UI Prototype: [https://pip-rosy.vercel.app/tasks](https://pip-rosy.vercel.app/ta
 
 ### Key Screens
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <strong>1. Home Screen</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/fb8ba8fb-83d0-47cc-9b89-999cc54d8da0"
-        alt="Home Screen"
-        width="220"
-      >
-      <br><br>
-      Pip greets the user with their current state front and center, so capacity, not tasks, is the first thing they see every time they open the app.
-    </td>
+| **1. Home Screen<br><br> <img width="500" height="1080" alt="WhatsApp Image 2026-09-13 at 9 58 38 PM" src="https://github.com/user-attachments/assets/fb8ba8fb-83d0-47cc-9b89-999cc54d8da0" />< <br><br>Pip greets the user with their current state front and center, so capacity, not tasks, is the first thing they see every time they open the app.** | **2. Today's Manifest<br><br> <img width="500" height="1080" alt="WhatsApp Image 2026-09-13 at 9 58 39 PM" src="https://github.com/user-attachments/assets/ad806c13-0bf8-48df-ab12-6a1114c0c9fc" /> <br><br>The daily task list shows exactly how much load each task adds, making the cost of taking on more work visible before the user commits to it.** | **3. Reflect Screen<br><br> <img width="500" height="1080" alt="WhatsApp Image 2026-09-13 at 9 58 39 PM (1)" src="https://github.com/user-attachments/assets/c85905be-645f-40c2-bdb5-0668f6f1b338" /> <br><br>A weekly view turns a week of scores into a readable trend, helping users spot patterns in their Pressure and Vitality over time instead of only reacting day to day.** |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4. Profile Screen<br><br> <img width="500" height="1080" alt="WhatsApp Image 2026-09-13 at 9 58 39 PM (2)" src="https://github.com/user-attachments/assets/a7753a02-1f04-4e51-80a9-da8f67fe45d8" /> <br><br>Rewards, unprocessed captures, and personal preferences all live in one place, keeping progress and control easy to find.                         | 5. Home Screen Widget<br><br> <img width="456" height="884" alt="Screenshot 2026-09-14 002337" src="https://github.com/user-attachments/assets/05af0498-936c-4fc2-99da-a503e3aea1f9" /> <br><br>A home-screen widget keeps the user's current state visible at a glance, without needing to open the app at all.                                | 6. Quick Capture from Widget<br><br> <img width="472" height="834" alt="Screenshot 2026-09-13 230309" src="https://github.com/user-attachments/assets/0647203f-48ee-4bfd-942c-115dedc8365c" /> <br><br>Capturing a thought takes seconds directly from the home screen, removing the friction that normally causes ideas to get lost.                                 |
+| 7. Three Input Modes<br><br> <img width="1088" height="414" alt="image" src="https://github.com/user-attachments/assets/f7348f9d-68f1-41a8-add3-cd178cf8a731" /> <br><br>Users can capture however feels natural in the moment, typing, handwriting, or speaking, all landing in the same inbox for later processing.   |                                                                                                                                                                                    | 8. Lockscreen Capture Mode<br><br> <img width="424" height="792" alt="Screenshot 2026-09-13 230450" src="https://github.com/user-attachments/assets/42d65e16-e23b-43b5-b3c2-7589745bd4de" /> <br><br>Thoughts can be captured straight from the lockscreen, so nothing gets lost in the time it takes to unlock and open an app.                                      |
 
-    <td width="33%" valign="top">
-      <strong>2. Today's Manifest</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/ad806c13-0bf8-48df-ab12-6a1114c0c9fc"
-        alt="Today's Manifest"
-        width="220"
-      >
-      <br><br>
-      The daily task list shows exactly how much load each task adds, making the cost of taking on more work visible before the user commits to it.
-    </td>
+  
 
-    <td width="33%" valign="top">
-      <strong>3. Reflect Screen</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/c85905be-645f-40c2-bdb5-0668f6f1b338"
-        alt="Reflect Screen"
-        width="220"
-      >
-      <br><br>
-      A weekly view turns a week of scores into a readable trend, helping users spot patterns in their Pressure and Vitality over time instead of only reacting day to day.
-    </td>
-  </tr>
-
-  <tr>
-    <td width="33%" valign="top">
-      <strong>4. Profile Screen</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/a7753a02-1f04-4e51-80a9-da8f67fe45d8"
-        alt="Profile Screen"
-        width="220"
-      >
-      <br><br>
-      Rewards, unprocessed captures, and personal preferences all live in one place, keeping progress and control easy to find.
-    </td>
-
-    <td width="33%" valign="top">
-      <strong>5. Home Screen Widget</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/05af0498-936c-4fc2-99da-a503e3aea1f9"
-        alt="Home Screen Widget"
-        width="220"
-      >
-      <br><br>
-      A home-screen widget keeps the user's current state visible at a glance, without needing to open the app at all.
-    </td>
-
-    <td width="33%" valign="top">
-      <strong>6. Quick Capture from Widget</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/0647203f-48ee-4bfd-942c-115dedc8365c"
-        alt="Quick Capture from Widget"
-        width="220"
-      >
-      <br><br>
-      Capturing a thought takes seconds directly from the home screen, removing the friction that normally causes ideas to get lost.
-    </td>
-  </tr>
-
-  <tr>
-    <td colspan="2" valign="top">
-      <strong>7. Three Input Modes</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/f7348f9d-68f1-41a8-add3-cd178cf8a731"
-        alt="Three Input Modes"
-        width="520"
-      >
-      <br><br>
-      Users can capture however feels natural in the moment, typing, handwriting, or speaking, all landing in the same inbox for later processing.
-    </td>
-
-    <td valign="top">
-      <strong>8. Lockscreen Capture Mode</strong>
-      <br><br>
-      <img
-        src="https://github.com/user-attachments/assets/42d65e16-e23b-43b5-b3c2-7589745bd4de"
-        alt="Lockscreen Capture Mode"
-        width="200"
-      >
-      <br><br>
-      Thoughts can be captured straight from the lockscreen, so nothing gets lost in the time it takes to unlock and open an app.
-    </td>
-  </tr>
-</table>
-
-<br>
 ## 4. What Makes It Different
 
 Most productivity apps ask "what do you need to do?" Most wellness apps ask "how do you feel?" Pip is built around a genuinely different question: "what can you actually handle right now, and how should your task list change because of it?" That framing drives every novel feature below.
