@@ -48,3 +48,6 @@ emu-*.png
 
 # Emitted by `npm run verify` — see tsconfig.verify.json
 .verify-build/
+
+.vercel
+.env*
