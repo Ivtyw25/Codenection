@@ -71,11 +71,11 @@ Feature Set
 
 ### 2.2 Ideation Boards
 
- 
+ ![Use Case Diagram](assets\readmeimage\codenection-Page-1.drawio.png)
 
 This use case diagram maps out every interaction a student has with Pip across the GTD pipeline, helping us confirm that each core feature (Capture, Clarify, Engage, Reflect) had a clear actor-driven purpose before we committed it to the build scope. 
 
- 
+ ![Flowchart](assets\readmeimage\codenection-Page-2.drawio.png)
 
 This flowchart traces a task's full lifecycle from the moment a student captures it to how it eventually affects their Pressure/Vitality state, which is what helped us catch that our AI Clarify step and Pressure engine needed to talk to each other rather than running as separate features. 
 
@@ -101,10 +101,19 @@ UI Prototype: [https://pip-rosy.vercel.app/tasks](https://pip-rosy.vercel.app/ta
 
 ### Key Screens
 
-| **1. Home Screen<br><br>  <br>Pip greets the user with their current state front and center, so capacity, not tasks, is the first thing they see every time they open the app.** | **2. Today's Manifest<br><br>  <br>The daily task list shows exactly how much load each task adds, making the cost of taking on more work visible before the user commits to it.** | **3. Reflect Screen<br><br>  <br>A weekly view turns a week of scores into a readable trend, helping users spot patterns in their Pressure and Vitality over time instead of only reacting day to day.** |
+| **1. Home Screen<br> ![S1](assets\readmeimage\WhatsApp Image 2026-09-13 at 9.58.38 PM.jpeg)
+<br>  <br>Pip greets the user with their current state front and center, so capacity, not tasks, is the first thing they see every time they open the app.** | **2. Today's Manifest<br> ![S2](assets\readmeimage\WhatsApp Image 2026-09-13 at 9.58.39 PM.jpeg)
+ <br>  <br>The daily task list shows exactly how much load each task adds, making the cost of taking on more work visible before the user commits to it.** | **3. Reflect Screen<br> ![S3](assets\readmeimage\WhatsApp Image 2026-09-13 at 9.58.39 PM (1).jpeg)
+ <br>  <br>A weekly view turns a week of scores into a readable trend, helping users spot patterns in their Pressure and Vitality over time instead of only reacting day to day.** |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 4. Profile Screen<br><br>  <br>Rewards, unprocessed captures, and personal preferences all live in one place, keeping progress and control easy to find.                         | 5. Home Screen Widget<br><br>  <br>A home-screen widget keeps the user's current state visible at a glance, without needing to open the app at all.                                | 6. Quick Capture from Widget<br><br>  <br>Capturing a thought takes seconds directly from the home screen, removing the friction that normally causes ideas to get lost.                                 |
-| 7. Three Input Modes<br><br>  <br>Users can capture however feels natural in the moment, typing, handwriting, or speaking, all landing in the same inbox for later processing.   |                                                                                                                                                                                    | 8. Lockscreen Capture Mode<br><br>  <br>Thoughts can be captured straight from the lockscreen, so nothing gets lost in the time it takes to unlock and open an app.                                      |
+| 4. Profile Screen<br> ![S4](assets\readmeimage\WhatsApp Image 2026-09-13 at 9.58.39 PM (2).jpeg)
+ <br>  <br>Rewards, unprocessed captures, and personal preferences all live in one place, keeping progress and control easy to find.                         | 5. Home Screen Widget<br> ![S5](assets\readmeimage\Screenshot 2026-09-14 002337.png)
+<br>  <br>A home-screen widget keeps the user's current state visible at a glance, without needing to open the app at all.                                | 6. Quick Capture from Widget<br> ![S61](assets\readmeimage\Screenshot 2026-09-13 230341.png)
+ ![S62](assets\readmeimage\Screenshot 2026-09-13 230357.png)
+ ![S63](assets\readmeimage\Screenshot 2026-09-13 230416.png)
+<br>  <br>Capturing a thought takes seconds directly from the home screen, removing the friction that normally causes ideas to get lost.                                 |
+| 7. Three Input Modes<br> ![S7](assets\readmeimage\Screenshot 2026-09-13 230450.png) 
+<br>  <br>Users can capture however feels natural in the moment, typing, handwriting, or speaking, all landing in the same inbox for later processing.   |                                                                                                                                                                                    | 8. Lockscreen Capture Mode<br><br>  <br>Thoughts can be captured straight from the lockscreen, so nothing gets lost in the time it takes to unlock and open an app.                                      |
 
   
 
@@ -168,7 +177,8 @@ Rather than silently rescheduling tasks or adjusting the user's plan, Pip surfac
 
 **System Architecture Diagram**
 
-  
+  ![System Architecture Diagram](assets\readmeimage\codenection-Page-3.drawio.png)
+
 
 This diagram shows how a capture flows from the React Native + Expo mobile app through our FastAPI backend into the AI processing layer (LangChain + Gemini Flash), before being persisted in Supabase (PostgreSQL), with Google Calendar, Apple HealthKit, and Mi Band feeding in as external data sources. We chose this layered structure so the AI orchestration step sits clearly between the API and database, making it easy to isolate and test independently during Week 2 of the build.
 
