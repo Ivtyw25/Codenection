@@ -1,23 +1,25 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
+  AlarmClock,
   Bell,
+  CalendarClock,
   CheckCircle2,
   ChevronRight,
   Clock,
   Flame,
   Inbox,
   Leaf,
-  Scale,
+  SlidersHorizontal,
+  User,
 } from 'lucide-react-native';
 
 import {
   ForecastRow,
   ForestHeader,
   Gauge,
-  LoadBreakdown,
   NotificationsDrawer,
   PipMascot,
   StatTile,
@@ -25,17 +27,17 @@ import {
   Timeline,
   onForest,
 } from '@/components/app';
-import { Card, Chip, EmptyState, IconButton, Interactive, Txt } from '@/components/ui';
-import { formatEstimate } from '@/data/format';
+import { Button, Card, Chip, EmptyState, IconButton, Interactive, Sheet, Txt } from '@/components/ui';
+import { FELT_OPTIONS } from '@/data/calibration';
+import { formatDue, formatEstimate, isOverdue, startOfDay } from '@/data/format';
 import { useApp } from '@/store/AppStore';
 import type { Slot } from '@/store/selectors';
 import {
   useCapacity,
+  useCheckIn,
   useForecast,
   useInboxCount,
-  useLoadBreakdown,
   useNow,
-  useRebalancePlan,
   usePipState,
   useStreak,
   useTodayTimeline,
@@ -43,6 +45,7 @@ import {
   useWeekSeries,
 } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
+import type { PipState, PipStateName, Task } from '@/types';
 
 /**
  * Home — SCR-10.
@@ -56,10 +59,8 @@ export default function HomeScreen() {
   const router = useRouter();
   const now = useNow();
 
-  const { data, toggleTask, toggleSubtask, reload, toast, setQuery } = useApp();
+  const { data, toggleTask, toggleSubtask, patchTask, recordFeeling, reload, toast } = useApp();
   const capacity = useCapacity();
-  const breakdown = useLoadBreakdown();
-  const plan = useRebalancePlan();
   const forecast = useForecast();
   const pip = usePipState();
   const streak = useStreak();
@@ -67,10 +68,63 @@ export default function HomeScreen() {
   const week = useWeekSeries();
   const unread = useUnreadCount();
   const inboxCount = useInboxCount();
+  const checkIn = useCheckIn();
 
   const [notifOpen, setNotifOpen] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /** The task whose deadline is being moved, or null while the sheet is shut. */
+  const [reassigning, setReassigning] = useState<Task | null>(null);
+
+  /**
+   * Open work whose deadline has already passed.
+   *
+   * Sorted oldest-first, so the thing that has been late longest is the thing
+   * asked about first — a list ordered any other way makes the student scan for
+   * the worst item, which is work the app should be doing for them.
+   */
+  const overdue = useMemo(
+    () =>
+      data.tasks
+        .filter((t) => t.status === 'open' && isOverdue(t.dueAt, now))
+        .sort((a, b) => new Date(a.dueAt!).getTime() - new Date(b.dueAt!).getTime()),
+    [data.tasks, now],
+  );
+
+  /**
+   * Give an overdue task a new deadline.
+   *
+   * This is the whole mechanism: a task is overdue because its date is in the
+   * past and for no other reason, so writing a future date is what ends the
+   * state. There is no separate "acknowledged" flag to get out of step with the
+   * date — which is exactly the bug that a flag would eventually produce, a
+   * task showing as fine while its deadline sat two weeks behind it.
+   */
+  const reassign = useCallback(
+    (task: Task, to: Date) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      const previous = task.dueAt;
+      patchTask(task.id, {
+        dueAt: to.toISOString(),
+        // Counted like any other deferral. A task that keeps being reassigned
+        // is a task that is not going to happen, and the Rebalancer reads this
+        // to stop offering to move it for a fourth time.
+        postponedFrom: previous,
+        postponeCount: (task.postponeCount ?? 0) + 1,
+      });
+      setReassigning(null);
+      toast(`“${task.title.slice(0, 28)}${task.title.length > 28 ? '…' : ''}” → ${formatDue(to.toISOString(), now)}`, 'success', {
+        label: 'Undo',
+        run: () =>
+          patchTask(task.id, {
+            dueAt: previous,
+            postponedFrom: task.postponedFrom ?? null,
+            postponeCount: task.postponeCount ?? 0,
+          }),
+      });
+    },
+    [patchTask, toast, now],
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -164,6 +218,19 @@ export default function HomeScreen() {
                 badge={unread}
                 onPress={() => setNotifOpen(true)}
               />
+              {/*
+                Profile's way in, now that Rebalance holds its tab slot. It
+                belongs in the header with the other two destinations you visit
+                deliberately rather than continuously — nobody opens their
+                settings twice a day, and a fifth of the tab bar is an expensive
+                place to keep something nobody opens.
+              */}
+              <IconButton
+                icon={<User size={18} color={onForest.primary} />}
+                accessibilityLabel="Your profile and settings"
+                tone="onDark"
+                onPress={() => router.push('/profile')}
+              />
             </View>
           </View>
 
@@ -205,30 +272,24 @@ export default function HomeScreen() {
               <ChevronRight size={18} color={scheme.textMuted} />
             </View>
 
-            <Gauge label="Pressure" value={capacity.pressure} kind="pressure" hint={capacity.pressureNote} />
-
             {/*
-              Directly under the number it explains, not on a screen of its
-              own. A student who can see 64 and cannot see what the 64 is made
-              of has been told they are struggling and given nothing to do
-              about it — which is the exact failure mode this app exists to
-              avoid. Two rows here; the rest live on the Pip tab.
-            */}
-            {breakdown.slices.length > 0 ? (
-              <View style={styles.breakdown}>
-                <LoadBreakdown
-                  total={breakdown.total}
-                  slices={breakdown.slices}
-                  limit={2}
-                  onPressCategory={(categoryId) => {
-                    setQuery({ categoryId, range: 'all' });
-                    router.push('/tasks');
-                  }}
-                />
-              </View>
-            ) : null}
+              Two gauges, and nothing between them.
 
-            <Gauge label="Vitality" value={capacity.vitality} kind="vitality" hint={capacity.vitalityNote} />
+              This card used to carry the category breakdown between the bars
+              and a line of derived commentary under each ("2 overdue items are
+              carrying most of this", "Rest & Sleep is 37 below your mark"). All
+              of it was true and all of it belonged one screen deeper. Home is
+              the first thing a student sees, often before they have decided
+              whether they can face the day, and a card that answers "how am I?"
+              with two numbers, a five-way decomposition and two diagnoses has
+              stopped answering the question and started briefing them.
+
+              So Home reports. The Pip tab — one tap away, through this very
+              card — still carries the breakdown and both notes, for the moment
+              somebody wants the working rather than the reading.
+            */}
+            <Gauge label="Pressure" value={capacity.pressure} kind="pressure" />
+            <Gauge label="Vitality" value={capacity.vitality} kind="vitality" />
 
             {/*
               The gauges say where today is; this says where tomorrow lands if
@@ -244,38 +305,45 @@ export default function HomeScreen() {
           </Card>
 
           {/*
-            ── The Rebalancer's only entry point ──────────────────────────
+            ── How does that actually compare? ────────────────────────────
 
-            Shown ONLY when `planRebalance` has both triggered and actually
-            found something safe to move. A permanent "Rebalance" button would
-            be an accusation sitting on the home screen every day of an ordinary
-            week; and offering the flow when the engine has nothing to propose
-            would walk a struggling student into an empty room.
+            The one thing on this screen that is not derived, and the only way
+            the two numbers above it can ever be told they are wrong.
 
-            It is phrased as an offer with the relief already priced, not as an
-            alert. "Pip found 5 moves" — not "You are overloaded".
+            Everything else in this app is arithmetic over a task list, which is
+            its strength and exactly the shape of its blind spot: a week can
+            contain nine hours of work and cost one person nothing and another
+            everything, and no amount of counting minutes separates the two. So
+            once a day, next to its own reading, Pip asks — and the gap between
+            the answer and the reading is the only information in the system
+            that could not have been computed.
+
+            Asked once per day and then gone. A wellbeing prompt that reappears
+            after you have answered it has stopped asking and started nagging.
           */}
-          {plan.triggered && plan.moves.length > 0 ? (
+          {!checkIn.answered ? (
+            <CheckInCard
+              computed={pip}
+              pressure={capacity.pressure}
+              vitality={capacity.vitality}
+              onAnswer={(felt) => {
+                Haptics.selectionAsync().catch(() => {});
+                recordFeeling(felt, pip.name, capacity.pressure, capacity.vitality);
+                toast('Logged. Pip will weigh that against its own read.', 'success');
+              }}
+            />
+          ) : checkIn.note ? (
             <Interactive
               accessibilityRole="button"
-              accessibilityLabel={`Pip found ${plan.moves.length} ${plan.moves.length === 1 ? 'move' : 'moves'} that would take ${plan.before - plan.after} points off your week. Review them.`}
-              onPress={() => router.push('/rebalance')}
+              accessibilityLabel={`Today's check-in is logged. ${checkIn.note}`}
+              onPress={() => router.push('/pip')}
               radius="lg"
-              style={[
-                styles.rebalance,
-                { backgroundColor: status.warning.bg, borderColor: status.warning.solid },
-              ]}
+              style={[styles.calibrated, { backgroundColor: scheme.surface, borderColor: scheme.border }]}
             >
-              <Scale size={18} color={status.warning.fg} />
-              <View style={{ flex: 1, gap: space[0.5] }}>
-                <Txt variant="h4" color={status.warning.fg}>
-                  This week is over its limits
-                </Txt>
-                <Txt variant="caption" color={status.warning.fg}>
-                  {`Pip found ${plan.moves.length} ${plan.moves.length === 1 ? 'move' : 'moves'} worth ${plan.before - plan.after} points. Nothing happens until you say so.`}
-                </Txt>
-              </View>
-              <ChevronRight size={18} color={status.warning.fg} />
+              <SlidersHorizontal size={16} color={scheme.primary} />
+              <Txt variant="caption" muted style={{ flex: 1 }}>
+                {checkIn.note}
+              </Txt>
             </Interactive>
           ) : null}
 
@@ -323,6 +391,34 @@ export default function HomeScreen() {
               <ChevronRight size={16} color={scheme.primary} />
             </Interactive>
           </View>
+
+          {/*
+            ── Overdue ───────────────────────────────────────────────────
+
+            Above the rail, and deliberately not folded into it.
+
+            A late task used to appear as an ordinary block somewhere down
+            today's timeline wearing a small red "Past deadline" chip, which
+            quietly made overdue a property of a *block* — something the
+            scheduler noticed in passing. It is not. It is a state of the TASK,
+            and it is the one state in the app the student has to resolve
+            themselves, because only they know whether Thursday's essay is
+            getting done tonight or moving to next week.
+
+            So it is listed here as a choice, with the only two answers that end
+            it: do it, or give it a new date. It stays overdue until they pick
+            one — reassigning is what makes it an ordinary task again, and
+            nothing else does. Pip will not quietly roll a deadline forward to
+            tidy the list up, because a deadline that moves on its own is a
+            deadline that has stopped meaning anything.
+          */}
+          {overdue.length > 0 ? (
+            <OverdueCard
+              tasks={overdue}
+              onOpen={(taskId) => router.push(`/task/${taskId}`)}
+              onReassign={(task) => setReassigning(task)}
+            />
+          ) : null}
 
           {/*
             A rail of STEPS, not a stack of tasks.
@@ -415,7 +511,240 @@ export default function HomeScreen() {
 
       <NotificationsDrawer visible={notifOpen} onClose={() => setNotifOpen(false)} />
       <StreakDrawer visible={streakOpen} onClose={() => setStreakOpen(false)} />
+
+      <ReassignSheet
+        task={reassigning}
+        now={now}
+        onClose={() => setReassigning(null)}
+        onPick={(to) => reassigning && reassign(reassigning, to)}
+      />
     </View>
+  );
+}
+
+/**
+ * The overdue list.
+ *
+ * Framed as a question with two answers rather than as an alert with none. The
+ * temptation on a screen like this is a red banner counting the failures — "3
+ * overdue!" — which tells a student something they already know and gives them
+ * nowhere to put it. Every row here is a decision they can close in one tap.
+ *
+ * The copy never says "late". It says when it was due and offers a new date,
+ * because the point of the row is the choice at the end of it, not the verdict
+ * at the start.
+ */
+function OverdueCard({
+  tasks,
+  onOpen,
+  onReassign,
+}: {
+  tasks: Task[];
+  onOpen: (id: string) => void;
+  onReassign: (task: Task) => void;
+}) {
+  const scheme = useScheme();
+  const now = useNow();
+
+  return (
+    <Card style={[styles.overdue, { borderColor: status.warning.solid }]}>
+      <View style={styles.overdueHead}>
+        <AlarmClock size={16} color={status.warning.fg} />
+        <Txt variant="h4" color={status.warning.fg} style={{ flex: 1 }}>
+          {tasks.length === 1 ? 'One thing has passed its date' : `${tasks.length} things have passed their dates`}
+        </Txt>
+      </View>
+      <Txt variant="caption" muted>
+        These stay here until you finish them or give them a new date. Pip will not move a deadline
+        on its own.
+      </Txt>
+
+      <View style={{ gap: space[2], marginTop: space[1] }}>
+        {tasks.map((task) => (
+          <View key={task.id} style={[styles.overdueRow, { borderColor: scheme.border }]}>
+            <Interactive
+              accessibilityRole="button"
+              accessibilityLabel={`${task.title}, was due ${formatDue(task.dueAt, now)}. Open it.`}
+              onPress={() => onOpen(task.id)}
+              radius="sm"
+              noScale
+              style={{ flex: 1, gap: space[0.5] }}
+            >
+              <Txt variant="bodySm" numberOfLines={1}>
+                {task.title}
+              </Txt>
+              <Txt variant="caption" color={status.warning.fg}>
+                was due {formatDue(task.dueAt, now)}
+                {(task.postponeCount ?? 0) > 0
+                  ? ` · moved ${task.postponeCount === 1 ? 'once' : `${task.postponeCount} times`}`
+                  : ''}
+              </Txt>
+            </Interactive>
+
+            <Button
+              label="Reassign"
+              variant="secondary"
+              size="sm"
+              icon={<CalendarClock size={14} color={scheme.primary} />}
+              onPress={() => onReassign(task)}
+              accessibilityHint="Choose a new date. It stops being overdue once it has one."
+            />
+          </View>
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+/**
+ * Picking the new date.
+ *
+ * Relative options rather than a calendar. The question being answered is "when
+ * will I actually do this?", and the honest answers to that are tonight, in the
+ * morning, at the weekend, next week — not the 14th. A date grid would make the
+ * student translate an intention into a number, which is a decision-cost this
+ * sheet exists to avoid, and on the day their list is already late is the worst
+ * possible moment to charge it.
+ */
+function ReassignSheet({
+  task,
+  now,
+  onClose,
+  onPick,
+}: {
+  task: Task | null;
+  now: Date;
+  onClose: () => void;
+  onPick: (to: Date) => void;
+}) {
+  const scheme = useScheme();
+
+  const options = useMemo(() => {
+    const at = (daysAhead: number, hour: number) => {
+      const d = startOfDay(now);
+      d.setDate(d.getDate() + daysAhead);
+      d.setHours(hour, 0, 0, 0);
+      return d;
+    };
+
+    // Saturday from wherever the week currently is. Sunday counts as already
+    // being the weekend, so it offers the one coming rather than one gone.
+    const dow = now.getDay();
+    const toSaturday = dow === 6 ? 7 : (6 - dow + 7) % 7 || 7;
+
+    return [
+      { label: 'Later today', hint: 'By this evening', date: at(0, 21) },
+      { label: 'Tomorrow', hint: 'Morning', date: at(1, 9) },
+      { label: 'This weekend', hint: 'Saturday', date: at(toSaturday, 11) },
+      { label: 'Next week', hint: 'A clear run at it', date: at(7, 9) },
+    ];
+  }, [now]);
+
+  return (
+    <Sheet visible={task != null} onClose={onClose} title="Give it a new date">
+      <View style={{ gap: space[2] }}>
+        <Txt variant="bodySm" muted>
+          {task
+            ? `“${task.title}” was due ${formatDue(task.dueAt, now)}. Pick when it is actually happening — it stops being overdue as soon as it has a date it can still meet.`
+            : ''}
+        </Txt>
+
+        {options.map((option) => (
+          <Interactive
+            key={option.label}
+            accessibilityRole="button"
+            accessibilityLabel={`${option.label}. ${option.hint}.`}
+            onPress={() => onPick(option.date)}
+            radius="md"
+            style={[styles.dateOption, { borderColor: scheme.border }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Txt variant="bodySm">{option.label}</Txt>
+              <Txt variant="caption" muted>
+                {option.hint}
+              </Txt>
+            </View>
+            <Txt variant="caption" muted>
+              {formatDue(option.date.toISOString(), now)}
+            </Txt>
+            <ChevronRight size={16} color={scheme.textMuted} />
+          </Interactive>
+        ))}
+      </View>
+    </Sheet>
+  );
+}
+
+/**
+ * The daily check-in.
+ *
+ * Pip's own read is shown FIRST and in full — the state, and the two numbers
+ * behind it. Asking "how do you feel?" on its own would collect a mood; asking
+ * it next to a stated prediction collects a *correction*, which is the only
+ * thing this card is for. It also makes the app go first, which matters: a tool
+ * that asks you to rate yourself is doing something quite different from one
+ * that says what it thinks and invites you to disagree.
+ *
+ * Five options, in the app's own vocabulary rather than on a 1–10 scale. Nobody
+ * knows what a 6 means, and the answer has to land on `PipStateName` to be
+ * comparable with the reading at all.
+ */
+function CheckInCard({
+  computed,
+  pressure,
+  vitality,
+  onAnswer,
+}: {
+  computed: PipState;
+  pressure: number;
+  vitality: number;
+  onAnswer: (felt: PipStateName) => void;
+}) {
+  const scheme = useScheme();
+
+  return (
+    <Card style={styles.checkIn}>
+      <View style={styles.checkInHead}>
+        <SlidersHorizontal size={16} color={scheme.primary} />
+        <Txt variant="h4" style={{ flex: 1 }}>
+          Does that match how today feels?
+        </Txt>
+      </View>
+
+      <Txt variant="bodySm" muted>
+        Pip reads you as <Txt variant="bodySm" style={styles.semibold}>{computed.label.toLowerCase()}</Txt> — pressure {pressure},
+        reserve {vitality}. That is counted off your task list, which can only ever be half the
+        story. Tell it the other half and it will weigh the two together from now on.
+      </Txt>
+
+      <View style={styles.feltRow}>
+        {FELT_OPTIONS.map((option) => (
+          <Interactive
+            key={option.state}
+            accessibilityRole="button"
+            accessibilityLabel={`${option.label}. ${option.blurb}`}
+            onPress={() => onAnswer(option.state)}
+            radius="md"
+            style={[
+              styles.felt,
+              {
+                borderColor: option.state === computed.name ? scheme.primary : scheme.border,
+                backgroundColor:
+                  option.state === computed.name ? scheme.surfaceAlt : 'transparent',
+              },
+            ]}
+          >
+            <Txt variant="caption" center numberOfLines={1}>
+              {option.label}
+            </Txt>
+          </Interactive>
+        ))}
+      </View>
+
+      <Txt variant="caption" color={scheme.textMuted}>
+        The outlined one is Pip&apos;s guess. Agreeing is as useful an answer as disagreeing.
+      </Txt>
+    </Card>
   );
 }
 
@@ -435,9 +764,6 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: space[4], marginTop: -space[6], gap: space[3] },
   stateCard: { gap: space[3] },
-  // Inset and hairline-separated, so the rows read as an explanation OF the
-  // gauge above rather than as a third gauge of their own.
-  breakdown: { marginTop: -space[1], marginLeft: space[1] },
   stateHead: { flexDirection: 'row', alignItems: 'center', gap: space[2.5] },
   stateBadge: {
     width: 32,
@@ -447,14 +773,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  rebalance: {
+  overdue: { gap: space[1.5], borderWidth: 1 },
+  overdueHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  overdueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[2.5],
-    padding: space[3.5],
+    gap: space[2],
+    padding: space[2.5],
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  dateOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    padding: space[3],
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+
+  checkIn: { gap: space[2.5] },
+  checkInHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  feltRow: { flexDirection: 'row', gap: space[1.5] },
+  felt: {
+    flex: 1,
+    paddingVertical: space[2],
+    paddingHorizontal: space[1],
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  calibrated: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+    padding: space[3],
     borderRadius: radius.lg,
     borderWidth: 1,
   },
+
   streak: {
     flexDirection: 'row',
     alignItems: 'center',

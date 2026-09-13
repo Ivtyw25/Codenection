@@ -1,40 +1,53 @@
 /**
- * Why a sub-stat is where it is, and what would move it.
+ * Why a sub-stat is where it is, said as sentences.
  *
  * HONEST ABOUT WHAT THIS IS. There is no model behind this file. Every line it
- * produces is arithmetic over the user's own readings, their own targets and
- * the weights in their own `VitalityModel` — which is exactly why it can quote
- * the numbers it is reasoning from. An explanation the user cannot check is
- * worse than no explanation, and a wellbeing score that says "our AI thinks you
- * should rest more" without showing its working is the thing this screen exists
- * to be the opposite of.
+ * produces is arithmetic over the user's own readings, their own suggested
+ * marks and the weights in their own `VitalityModel` — which is exactly why it
+ * can quote the numbers it is reasoning from. An explanation the user cannot
+ * check is worse than no explanation, and a wellbeing score that says "our AI
+ * thinks you should rest more" without showing its working is the thing this
+ * screen exists to be the opposite of.
  *
- * The seam is the right shape for a real model: swap `explainVital` for a
- * generated response and the screen does not change. But it would still have to
- * cite these same figures, because they are what the score is made of.
+ * ── Why this stopped being a bullet list ───────────────────────────────────
+ *
+ * It used to emit six `Driver` rows, each a coloured dot and a fragment: "44
+ * against your 60 mark — 16 below." "Down 9 points since Monday." "5 days
+ * running below your mark." Every one of those was true and the list as a whole
+ * explained nothing, because a reader has to assemble the causal story out of
+ * six disconnected facts themselves — and the person reading this screen is by
+ * definition the person with the least capacity to do that today.
+ *
+ * A bulleted number is a reading. A sentence is a diagnosis. What someone
+ * actually wants here is "your physical vitality has been sliding all weekend —
+ * you have not done anything active in five days, and it is the slowest of the
+ * four to come back", which is the same arithmetic, joined up, with the
+ * mechanism named. So this file now writes paragraphs: what the stat is doing,
+ * what is breaking, and why it is dropping.
+ *
+ * ── What it deliberately no longer does ────────────────────────────────────
+ *
+ * It does not suggest anything. The old `Suggestion[]` — "protect a seven-hour
+ * window tonight", priced in points — has moved to `recovery.ts`, where it
+ * belongs: those are actions, actions need to be scheduled to happen at all,
+ * and scheduling them is the Rebalancer's job. Explaining a number and
+ * proposing work are two jobs, and doing both on one screen meant the reader
+ * got a diagnosis and a to-do list at the moment they were least able to take
+ * on either.
  */
 import type { Capacity, VitalId, VitalReading } from '@/types';
 import { formatDayHeading } from './format';
 
-export type DriverTone = 'good' | 'watch' | 'bad';
-
-/** One reason the number is what it is. Each cites a figure from the data. */
-export interface Driver {
-  text: string;
-  tone: DriverTone;
-}
-
-export interface Suggestion {
-  title: string;
-  why: string;
-  /** What it would be worth, in points of Vitality. */
-  lift: string;
-}
-
 export interface VitalExplanation {
+  /** The one-line read, shown at body size above the paragraphs. */
   headline: string;
-  drivers: Driver[];
-  suggestions: Suggestion[];
+  /**
+   * The explanation proper. Two to four paragraphs, in causal order: where it
+   * sits, what has been happening to it, and what that is costing.
+   */
+  paragraphs: string[];
+  /** The working shown — what the sentences above were computed from. */
+  basis: string;
 }
 
 export interface VitalPoint {
@@ -43,26 +56,17 @@ export interface VitalPoint {
   isToday: boolean;
 }
 
-/**
- * What raising a sub-stat by `points` is worth to the reserve.
- *
- * This is the whole reason the weights are user-visible: a fifteen-point gain
- * in Social Connection moves Vitality by two, and telling someone to fix their
- * weakest number without saying what it buys them is how an app ends up
- * nagging about something that barely matters.
- */
-function lift(points: number, weight: number): string {
-  const gain = Math.round(points * weight);
-  if (gain <= 0) return 'Holds the line rather than raising it';
-  return `About +${gain} Vitality`;
-}
-
 /** "1 point" / "2 points" — a wellbeing screen cannot afford to read as a draft. */
 function points(n: number): string {
   return `${n} ${n === 1 ? 'point' : 'points'}`;
 }
 
-/** Consecutive days ending today that sat below the user's mark. */
+/** "day" / "days", for the run-length sentences. */
+function days(n: number): string {
+  return `${n} ${n === 1 ? 'day' : 'days'}`;
+}
+
+/** Consecutive days ending today that sat below the user's suggested mark. */
 function daysBelow(series: VitalPoint[], target: number): number {
   let run = 0;
   for (let i = series.length - 1; i >= 0; i--) {
@@ -72,83 +76,39 @@ function daysBelow(series: VitalPoint[], target: number): number {
   return run;
 }
 
-// ── Suggestions ─────────────────────────────────────────────────────────────
-
 /**
- * What actually moves each sub-stat.
+ * What this sub-stat is actually made of, in the second person.
  *
- * Deliberately small, concrete and same-day. "Improve your sleep hygiene" is
- * advice; "protect a seven-hour window tonight" is something a person can
- * either do or not do by bedtime, which is the only kind of suggestion worth
- * putting in front of someone whose reserve is already low.
+ * The mechanism sentence is the whole reason the prose beats the bullets: "down
+ * 9 points" tells you the number moved, and "you have not done anything active
+ * in five days" tells you what moved it. These are the plain-language
+ * behavioural readings behind each stat — deliberately phrased as things a
+ * person does or stops doing, because those are the only things they can change.
  */
-const PLAYBOOK: Record<VitalId, { title: string; why: string; points: number }[]> = {
-  rest: [
-    {
-      title: 'Protect a seven-hour window tonight',
-      why: 'Rest carries more of your reserve than anything else, and it is the fastest of the four to recover.',
-      points: 9,
-    },
-    {
-      title: 'Pull your last block earlier',
-      why: 'Your plan can run to 10pm. Finishing the last step before 8 leaves a real wind-down instead of a hard stop.',
-      points: 5,
-    },
-    {
-      title: 'Put tomorrow’s first block after 9am',
-      why: 'A late start is worth more than a long lie-in you spend feeling behind.',
-      points: 4,
-    },
-  ],
-  mood: [
-    {
-      title: 'Close one small thing',
-      why: 'Finishing a task credits the reserve directly, and the two-minute items exist for exactly this.',
-      points: 6,
-    },
-    {
-      title: 'Log a check-in',
-      why: 'A subjective bad day nudges the score before your behaviour catches up — Pip cannot see it otherwise.',
-      points: 4,
-    },
-    {
-      title: 'Name the draining commitment in Weekly Reflect',
-      why: 'Two ten-hour weeks are not equal. Marking what drains you changes how it is weighed from then on.',
-      points: 7,
-    },
-  ],
-  physical: [
-    {
-      title: 'Take a twenty-minute walk between blocks',
-      why: 'Your plan already has gaps between steps. One of them is long enough.',
-      points: 6,
-    },
-    {
-      title: 'Put one session on tomorrow’s timeline',
-      why: 'Scheduled recovery survives a busy day; unscheduled recovery does not.',
-      points: 8,
-    },
-  ],
-  social: [
-    {
-      title: 'Message one person today',
-      why: 'This is the sub-stat that decays without anything going wrong, so it is also the one a single message moves.',
-      points: 10,
-    },
-    {
-      title: 'Attach a study block to someone',
-      why: 'You have work planned regardless. Doing an hour of it beside a friend costs no extra time.',
-      points: 12,
-    },
-    {
-      title: 'Put a shared meal on tomorrow’s plan',
-      why: 'A scheduled hour with someone is the only version of this that reliably happens.',
-      points: 15,
-    },
-  ],
+const MECHANISM: Record<VitalId, { slide: string; hold: string; slow: string }> = {
+  rest: {
+    slide: 'short nights stack up faster than any other deficit here',
+    hold: 'your nights have been long enough to clear the day',
+    slow: 'it is also the quickest of the four to come back — one protected night moves it visibly',
+  },
+  mood: {
+    slide:
+      'a run of heavy days erodes this one before it shows up anywhere else you would notice',
+    hold: 'you have been finishing things, and closing work credits this directly',
+    slow: 'it responds within a day or two, usually to something small being finished rather than something large being fixed',
+  },
+  physical: {
+    slide: 'days without anything active accumulate quietly — nothing goes wrong, it just drifts',
+    hold: 'you have been moving enough to keep it where you want it',
+    slow: 'it is the slowest of the four to recover, so it is worth catching before it gets far under',
+  },
+  social: {
+    slide:
+      'this is the one that decays without anything going wrong — no argument, no falling-out, just a week where nobody was seen',
+    hold: 'you have kept enough contact to hold it steady',
+    slow: 'it also rebounds faster than it looks — one real conversation moves it more than any other stat responds to anything',
+  },
 };
-
-// ── The explanation ─────────────────────────────────────────────────────────
 
 export function explainVital(
   reading: VitalReading,
@@ -156,104 +116,99 @@ export function explainVital(
   capacity: Capacity,
 ): VitalExplanation {
   const gap = reading.value - reading.target;
+  const under = gap < 0;
   const past = series.filter((p) => !p.isToday);
   const first = past[0];
   const prev = past[past.length - 1];
-  const drivers: Driver[] = [];
-
-  // 1. Where it sits against this user's own mark.
-  drivers.push(
-    gap >= 0
-      ? {
-          text: `${reading.value} against your ${reading.target} mark — ${gap === 0 ? 'exactly on it' : `${gap} above`}.`,
-          tone: 'good',
-        }
-      : {
-          text: `${reading.value} against your ${reading.target} mark — ${-gap} below.`,
-          tone: gap < -12 ? 'bad' : 'watch',
-        },
-  );
-
-  // 2. Which way it has moved, and from when.
-  if (first) {
-    const since = reading.value - first.value;
-    const when = formatDayHeading(first.date).replace(/^TODAY · |^TOMORROW · /, '');
-    if (Math.abs(since) >= 3) {
-      drivers.push({
-        text: `${since > 0 ? 'Up' : 'Down'} ${Math.abs(since)} points since ${when}.`,
-        tone: since > 0 ? 'good' : 'watch',
-      });
-    } else {
-      drivers.push({ text: `Flat since ${when} — within three points all week.`, tone: 'good' });
-    }
-  }
-
-  // 3. Day-over-day, which is the one a person can still act on.
-  if (prev) {
-    const step = reading.value - prev.value;
-    if (Math.abs(step) >= 4) {
-      drivers.push({
-        text: `${step > 0 ? 'Up' : 'Down'} ${Math.abs(step)} since yesterday.`,
-        tone: step > 0 ? 'good' : 'watch',
-      });
-    }
-  }
-
-  // 4. How long it has been under. A run is the signal; one bad day is noise.
+  const since = first ? reading.value - first.value : 0;
+  const step = prev ? reading.value - prev.value : 0;
   const run = daysBelow(series, reading.target);
-  if (run >= 3) {
-    drivers.push({
-      text: `${run} days running below your mark — long enough to be a pattern, not a bad day.`,
-      tone: 'bad',
-    });
-  }
-
-  // 5. What the gap is actually costing, via this stat's weight.
+  const mechanism = MECHANISM[reading.id];
   const pct = Math.round(reading.weight * 100);
-  drivers.push(
-    gap >= 0
-      ? {
-          text: `Worth ${pct}% of your reserve, contributing ${reading.contribution} of its points.`,
-          tone: 'good',
-        }
-      : {
-          text: `Worth ${pct}% of your reserve, so this gap is costing you about ${points(Math.max(1, Math.round(-gap * reading.weight)))} of Vitality.`,
-          tone: 'watch',
-        },
-  );
 
-  // 6. The one cross-link the spec is explicit about: pressure erodes recovery.
-  if ((reading.id === 'rest' || reading.id === 'mood') && capacity.pressure >= 50) {
-    drivers.push({
-      text: `Pressure is at ${capacity.pressure}%. Sustained load erodes this one first, so it is worth watching while the week is heavy.`,
-      tone: 'watch',
-    });
+  const paragraphs: string[] = [];
+
+  /*
+   * 1. Where it sits, and how it got there — one sentence, one joined thought.
+   *
+   * The standing and the trend belong together. "16 below your mark" and "down
+   * 9 since Monday" as separate bullets makes the reader work out that the
+   * second explains the first; as one sentence it simply says so.
+   */
+  const when = first ? formatDayHeading(first.date).replace(/^TODAY · |^TOMORROW · /, '') : '';
+  if (under && since <= -3) {
+    paragraphs.push(
+      `${reading.label} is at ${reading.value}, which is ${-gap} under the ${reading.target} you should be staying above. It has been sliding since ${when} — down ${points(-since)} across the week — and ${mechanism.slide}.`,
+    );
+  } else if (under) {
+    paragraphs.push(
+      `${reading.label} is at ${reading.value}, ${-gap} under the ${reading.target} you should be staying above. It has not fallen far this week; it simply has not come back up, and ${mechanism.slide}.`,
+    );
+  } else if (since >= 3) {
+    paragraphs.push(
+      `${reading.label} is at ${reading.value}, comfortably above the ${reading.target} you need to stay over, and it has climbed ${points(since)} since ${when}. Right now ${mechanism.hold}.`,
+    );
+  } else {
+    paragraphs.push(
+      `${reading.label} is at ${reading.value}, holding above the ${reading.target} you need to stay over and steady within a few points all week. ${capitalise(mechanism.hold)}.`,
+    );
   }
 
-  const headline =
-    reading.standing === 'strong'
-      ? `${reading.label} is doing its job. Nothing here needs fixing.`
-      : reading.standing === 'fair'
-        ? `${reading.label} is slightly under where you want it — recoverable today.`
-        : `${reading.label} is the one holding your reserve back right now.`;
+  /*
+   * 2. The run. This is the paragraph that turns a reading into a pattern, and
+   * it is the one a person most needs, because a single bad day is noise and
+   * five in a row is a thing that is happening to them.
+   */
+  if (run >= 3) {
+    paragraphs.push(
+      `This is ${days(run)} in a row below your mark, which is long enough to be a pattern rather than a bad night. That is what is breaking here — not the size of any one day, but that nothing has interrupted the run, and ${mechanism.slow}.`,
+    );
+  } else if (run > 0 && step <= -4) {
+    paragraphs.push(
+      `It dropped ${points(-step)} since yesterday, so this is a recent dip rather than a settled pattern — which is the easiest possible moment to interrupt it, because ${mechanism.slow}.`,
+    );
+  }
 
-  // A strong stat gets the cheapest maintenance move, not a to-do list.
-  const plays = PLAYBOOK[reading.id];
-  const suggestions = (reading.standing === 'strong' ? plays.slice(0, 1) : plays).map((play) => ({
-    title: play.title,
-    why: play.why,
-    /*
-     * Capped at the gap when the stat is under its mark.
-     *
-     * Getting Rest from 71 to its 75 mark is worth one point of Vitality, not
-     * the three a nine-point swing would imply — promising the bigger number
-     * would be the app overselling a nudge, which is how these screens lose
-     * trust. It also makes the weighting legible: every play on a 15%-weight
-     * stat is worth about two points, and that is the honest reason to spend
-     * the effort somewhere heavier first.
-     */
-    lift: lift(gap < 0 ? Math.min(play.points, -gap) : play.points, reading.weight),
-  }));
+  /*
+   * 3. What the gap costs, via this stat's own weight. The whole reason the
+   * weights are visible: a fifteen-point hole in a 15%-weight stat is worth two
+   * points of reserve, and a student deciding where to spend a tired evening
+   * deserves to know that before they spend it.
+   */
+  if (under) {
+    paragraphs.push(
+      `${reading.label} carries ${pct}% of your reserve, so this gap alone is costing you about ${points(Math.max(1, Math.round(-gap * reading.weight)))} of Vitality. Closing it back to ${reading.target} is worth roughly that much, and no more — which is worth knowing before you spend an evening on it.`,
+    );
+  } else {
+    paragraphs.push(
+      `It carries ${pct}% of your reserve and is currently contributing ${reading.contribution} of its points. Nothing here needs fixing; it needs not being spent.`,
+    );
+  }
 
-  return { headline, drivers, suggestions };
+  /*
+   * 4. The one cross-link the spec is explicit about: sustained load erodes
+   * recovery. Only said when it is actually true, and only for the two stats it
+   * is true of — a caveat that appears every time is a caveat nobody reads.
+   */
+  if ((reading.id === 'rest' || reading.id === 'mood') && capacity.pressure >= 50) {
+    paragraphs.push(
+      `Worth reading alongside your Pressure, which is at ${capacity.pressure}. Sustained load erodes this sub-stat before any of the others, so while the week stays this heavy it will keep pulling downward on its own — recovering it and lightening the week are the same job.`,
+    );
+  }
+
+  const headline = under
+    ? reading.standing === 'low'
+      ? `${reading.label} is the one holding your reserve back right now.`
+      : `${reading.label} has slipped under where it needs to be — still recoverable today.`
+    : `${reading.label} is doing its job.`;
+
+  return {
+    headline,
+    paragraphs,
+    basis: `Worked out from your own readings, the ${reading.target} mark suggested for this stat and the ${pct}% weight it carries in your reserve. No part of it is a guess about you.`,
+  };
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

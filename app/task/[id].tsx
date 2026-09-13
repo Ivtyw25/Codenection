@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
@@ -10,10 +10,12 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Image as ImageIcon,
   Leaf,
-
+  Music,
   Plus,
   Trash2,
+  Video,
   X,
 } from 'lucide-react-native';
 
@@ -30,6 +32,7 @@ import {
   Screen,
   Txt,
 } from '@/components/ui';
+import { formatDuration } from '@/data/attachments';
 import { formatDue, formatEstimate, isOverdue } from '@/data/format';
 import { blockers, loadPercent, nextAction, progress } from '@/data/derive';
 import { planSpan } from '@/data/schedule';
@@ -398,7 +401,7 @@ export default function TaskDetailScreen() {
         {task.resources.length > 0 ? (
           <>
             <Txt variant="caption" muted style={styles.sectionTitle}>
-              ATTACHED RESOURCES
+              ATTACHED FROM CAPTURE
             </Txt>
             <View style={{ gap: space[2] }}>
               {task.resources.map((resource) => (
@@ -442,31 +445,87 @@ export default function TaskDetailScreen() {
   );
 }
 
+/** Attachment kind → the icon that stands in when there is no thumbnail. */
+const ATTACHMENT_ICON: Record<NonNullable<Resource['attachmentKind']>, typeof FileText> = {
+  image: ImageIcon,
+  video: Video,
+  audio: Music,
+  document: FileText,
+};
+
+/**
+ * One thing carried in from the capture that produced this task.
+ *
+ * This row used to be a grey page icon, a filename and a toast that said file
+ * storage was not connected — which was true of the *storage* and quietly
+ * untrue of the file, because the picker had put a real local `uri` on the
+ * attachment and the commit threw it away. A student who photographed a
+ * whiteboard and said one sentence about it got a task carrying the photo's
+ * name and no photo.
+ *
+ * Now the row renders what the thing actually is: image attachments show
+ * themselves, audio and video say how long they run, and anything with a `uri`
+ * opens. Seeded resources and the voice-note placeholder have no `uri`, so they
+ * render as an honest non-openable row rather than a button that lies.
+ */
 function ResourceRow({ resource }: { resource: Resource }) {
   const scheme = useScheme();
   const { toast } = useApp();
 
+  const Icon = resource.attachmentKind ? ATTACHMENT_ICON[resource.attachmentKind] : FileText;
+  const openable = Boolean(resource.uri);
+
+  const meta = [
+    resource.kind,
+    resource.durationSec !== undefined ? formatDuration(resource.durationSec) : null,
+    resource.size !== '—' ? resource.size : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const open = () => {
+    if (!resource.uri) {
+      toast('Nothing stored for this one — it is listed for the record', 'neutral');
+      return;
+    }
+    /*
+     * `openURL`, not a bundled viewer.
+     *
+     * The `uri` is the picker's own cache copy on this device, so handing it to
+     * the OS is both the honest thing and the working one: whatever app already
+     * owns that file type opens it. A viewer of our own would be re-implementing
+     * the photo roll badly, and would still fail on the formats it did not know.
+     */
+    Linking.openURL(resource.uri).catch(() =>
+      toast('Nothing on this device can open that file', 'warning'),
+    );
+  };
+
   return (
     <Interactive
       accessibilityRole="button"
-      accessibilityLabel={`${resource.name}, ${resource.kind}, ${resource.size}`}
-      accessibilityHint="File storage is not connected yet"
-      onPress={() => toast('File storage arrives with the backend', 'neutral')}
+      accessibilityLabel={`${resource.name}, ${meta}`}
+      accessibilityHint={openable ? 'Opens the file' : 'Listed for the record — no file stored'}
+      onPress={open}
       radius="md"
       style={[styles.resource, { borderColor: scheme.border }]}
     >
       <View style={[styles.resourceIcon, { backgroundColor: scheme.surfaceAlt }]}>
-        <FileText size={15} color={scheme.textSecondary} />
+        {resource.attachmentKind === 'image' && resource.uri ? (
+          <Image source={{ uri: resource.uri }} style={styles.resourceThumb} resizeMode="cover" />
+        ) : (
+          <Icon size={15} color={scheme.textSecondary} />
+        )}
       </View>
       <View style={{ flex: 1 }}>
         <Txt variant="bodySm" numberOfLines={1}>
           {resource.name}
         </Txt>
         <Txt variant="caption" muted>
-          {resource.kind} · {resource.size}
+          {meta}
         </Txt>
       </View>
-      {resource.external ? (
+      {!openable ? null : resource.external ? (
         <ExternalLink size={16} color={scheme.textMuted} />
       ) : (
         <Download size={16} color={scheme.textMuted} />
@@ -519,7 +578,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  resourceThumb: { width: '100%', height: '100%' },
 
   pipNote: {
     marginTop: space[6],

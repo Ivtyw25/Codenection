@@ -12,6 +12,7 @@
  * every field of it is mutable from the UI.
  */
 import type { AppData, DayRecord, ShopItem, Task, Teammate, VitalId } from '@/types';
+import { EMPTY_CALIBRATION } from './calibration';
 import { DEFAULT_CATEGORIES } from './categories';
 import { DEFAULT_VITALITY_MODEL, derivePipState } from './derive';
 import { isoDate, startOfDay } from './format';
@@ -663,6 +664,15 @@ export function seedData(): AppData {
       },
     ],
     vitalityModel: DEFAULT_VITALITY_MODEL,
+    /*
+     * No check-ins yet, and therefore no bias.
+     *
+     * Seeding a learned correction would be the app claiming to know something
+     * about a student it has never met. The calibration card on Home is
+     * deliberately the one thing in the seeded world that starts empty — its
+     * whole point is that it can only be filled in by being asked.
+     */
+    calibration: EMPTY_CALIBRATION,
     history: HISTORY,
     shop: SHOP_ITEMS,
     notifications: [

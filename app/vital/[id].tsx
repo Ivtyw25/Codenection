@@ -5,7 +5,6 @@ import {
   Activity,
   ArrowLeft,
   ChevronRight,
-  Lightbulb,
   Moon,
   Smile,
   Sparkles,
@@ -14,7 +13,6 @@ import {
 
 import { Card, Chip, EmptyState, IconButton, Interactive, Screen, Txt } from '@/components/ui';
 import { formatDayHeading } from '@/data/format';
-import type { DriverTone } from '@/data/explain';
 import {
   useCapacity,
   useVital,
@@ -38,16 +36,21 @@ const TONE: Record<VitalStanding, 'success' | 'warning' | 'danger'> = {
   low: 'danger',
 };
 
+/**
+ * What the standing means, said as a threshold rather than as a comparison.
+ *
+ * These used to read "At your mark" / "Below your mark", which framed the
+ * number as a score against a personal best — as though the student had set
+ * themselves a target and were being graded on hitting it. That is the wrong
+ * relationship entirely. The mark is not an aspiration and missing it is not a
+ * failure: it is the level this sub-stat needs to stay above for the reserve to
+ * hold, in the same way a fuel gauge has a line on it. So the copy says what
+ * the line is for.
+ */
 const STANDING_LABEL: Record<VitalStanding, string> = {
-  strong: 'At your mark',
-  fair: 'Slightly under',
-  low: 'Below your mark',
-};
-
-const DRIVER_TONE: Record<DriverTone, 'success' | 'warning' | 'danger'> = {
-  good: 'success',
-  watch: 'warning',
-  bad: 'danger',
+  strong: 'Above the suggested level',
+  fair: 'Dipping under',
+  low: 'Under the level you need',
 };
 
 const CHART_HEIGHT = 130;
@@ -56,12 +59,18 @@ const CHART_HEIGHT = 130;
  * One sub-stat, explained.
  *
  * The Pip tab can say Vitality is 68. This page is the only place that can say
- * *why* — which of the four is dragging, how long it has been dragging, what
- * that gap costs in points, and what would move it today.
+ * *why* — which of the four is dragging, how long it has been dragging, and
+ * what that gap is costing the reserve.
  *
- * The bar chart is drawn against this user's own target rather than against
- * 100, because 44 is only "bad" relative to the 60 they told us they need. The
- * target line is the whole reading; the axis is decoration.
+ * It explains and it does not prescribe. The old "What would move it" section
+ * lived here and has gone to the Rebalancer, where a suggestion can be turned
+ * into a scheduled block instead of a sentence — and where the student has
+ * asked for advice rather than had it attached to a number they only came here
+ * to understand.
+ *
+ * The bar chart is drawn against the suggested level rather than against 100,
+ * because 44 is only "low" relative to the 60 this stat needs to stay above.
+ * That line is the whole reading; the axis is decoration.
  */
 export default function VitalDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -146,7 +155,7 @@ export default function VitalDetailScreen() {
             <View style={styles.legend}>
               <View style={[styles.legendDash, { backgroundColor: scheme.borderStrong }]} />
               <Txt variant="caption" muted>
-                your {reading.target} mark
+                stay above {reading.target}
               </Txt>
             </View>
           </View>
@@ -155,7 +164,7 @@ export default function VitalDetailScreen() {
             accessibilityRole="image"
             accessibilityLabel={`${reading.label} over ${series.length} days: ${series
               .map((p) => `${p.isToday ? 'today' : formatDayHeading(p.date)} ${p.value}`)
-              .join(', ')}. Your mark is ${reading.target}.`}
+              .join(', ')}. The suggested level to stay above is ${reading.target}.`}
             style={styles.chart}
           >
             {/* The mark, drawn across every column — the line the bars are read against. */}
@@ -216,56 +225,35 @@ export default function VitalDetailScreen() {
           {explanation.headline}
         </Txt>
 
-        <View style={{ gap: space[2] }}>
-          {explanation.drivers.map((driver) => (
-            <View key={driver.text} style={styles.driver}>
-              <View
-                style={[
-                  styles.driverDot,
-                  { backgroundColor: status[DRIVER_TONE[driver.tone]].solid },
-                ]}
-              />
-              <Txt variant="bodySm" muted style={{ flex: 1 }}>
-                {driver.text}
-              </Txt>
-            </View>
+        {/*
+          Paragraphs, not a bulleted readout.
+
+          This was six coloured dots — "44 against your 60 mark", "down 9 since
+          Monday", "5 days running below" — every one of them true, and the set
+          of them explaining nothing, because assembling six disconnected facts
+          into a causal story is work, and the person on this screen is by
+          definition the one with least capacity to do it today. A bulleted
+          number is a reading; a sentence is a diagnosis. The prose says what is
+          breaking and why it is dropping, which is the question that brought
+          them here.
+        */}
+        <View style={{ gap: space[3] }}>
+          {explanation.paragraphs.map((paragraph, i) => (
+            <Txt key={i} variant="bodySm" color={scheme.textSecondary}>
+              {paragraph}
+            </Txt>
           ))}
         </View>
 
         {/*
           The honesty note. Everything above is arithmetic over the user's own
-          readings and their own targets — saying so is what makes the numbers
-          checkable, and an explanation nobody can check is worth nothing.
+          readings and the marks suggested for them — saying so is what makes
+          the numbers checkable, and an explanation nobody can check is worth
+          nothing.
         */}
         <Txt variant="caption" color={scheme.textMuted} style={{ marginTop: space[3] }}>
-          Worked out from your own readings, your {reading.target} mark and the{' '}
-          {Math.round(reading.weight * 100)}% weight you give this stat. No part of it is a guess
-          about you.
+          {explanation.basis}
         </Txt>
-
-        {/* ── Suggestions ───────────────────────────────────────────────── */}
-        <View style={styles.sectionHead}>
-          <Lightbulb size={15} color={status.warning.solid} />
-          <Txt variant="h4" style={{ flex: 1 }}>
-            {reading.standing === 'strong' ? 'Worth keeping up' : 'What would move it'}
-          </Txt>
-        </View>
-
-        <View style={{ gap: space[2.5] }}>
-          {explanation.suggestions.map((suggestion) => (
-            <Card key={suggestion.title} style={styles.suggestion}>
-              <View style={styles.suggestionHead}>
-                <Txt variant="h4" style={{ flex: 1 }}>
-                  {suggestion.title}
-                </Txt>
-                <Chip label={suggestion.lift} size="sm" tone="success" />
-              </View>
-              <Txt variant="bodySm" muted>
-                {suggestion.why}
-              </Txt>
-            </Card>
-          ))}
-        </View>
 
         {/* ── The other three ───────────────────────────────────────────── */}
         <View style={styles.sectionHead}>
@@ -308,7 +296,7 @@ function OtherStat({ reading, onPress }: { reading: VitalReading; onPress: () =>
   return (
     <Interactive
       accessibilityRole="button"
-      accessibilityLabel={`${reading.label}, ${reading.value} of your ${reading.target} mark`}
+      accessibilityLabel={`${reading.label}, ${reading.value}, against a suggested level of ${reading.target}`}
       onPress={onPress}
       radius="md"
       noScale
@@ -382,11 +370,6 @@ const styles = StyleSheet.create({
     marginTop: space[6],
     marginBottom: space[2],
   },
-  driver: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
-  driverDot: { width: 7, height: 7, borderRadius: radius.pill, marginTop: space[1.5] },
-
-  suggestion: { gap: space[1.5], padding: space[3.5] },
-  suggestionHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
 
   other: {
     flexDirection: 'row',

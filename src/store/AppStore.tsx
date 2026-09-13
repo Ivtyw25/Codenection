@@ -23,9 +23,12 @@ import React, {
 import * as api from '@/data/api';
 import { uid } from '@/data/api';
 import { formatBytes } from '@/data/attachments';
+import { recordCheckIn } from '@/data/calibration';
 import { isBlocked } from '@/data/derive';
-import { slugify } from '@/data/categories';
+import { RECOVERY_CATEGORY, slugify } from '@/data/categories';
 import { applyMoves, type Move } from '@/data/rebalance';
+import { recoveryMeta, type RecoverySuggestion } from '@/data/recovery';
+import { DAY_END_HOUR } from '@/data/schedule';
 import { isoDate } from '@/data/format';
 import type {
   AppData,
@@ -37,6 +40,7 @@ import type {
   Category,
   CategoryId,
   IconName,
+  PipStateName,
   ProposedTask,
   Resource,
   Settings,
@@ -47,6 +51,7 @@ import type {
   TaskId,
   TaskQuery,
   TeammateId,
+  VitalId,
 } from '@/types';
 
 // ── Toast ───────────────────────────────────────────────────────────────────
@@ -119,6 +124,8 @@ type Action =
   | { type: 'task/remove'; id: TaskId }
   | { type: 'task/add'; tasks: Task[] }
   | { type: 'rebalance/apply'; moves: Move[]; at: string }
+  | { type: 'recovery/add'; task: Task }
+  | { type: 'checkin/record'; felt: PipStateName; computed: PipStateName; pressure: number; vitality: number; date: string }
   | { type: 'category/add'; label: string; icon: IconName }
   | { type: 'category/patch'; id: CategoryId; patch: Partial<Omit<Category, 'id'>> }
   | { type: 'category/archive'; id: CategoryId; on: boolean }
@@ -144,6 +151,24 @@ type Action =
 /** Applies `fn` to one task, leaving every other reference untouched. */
 function mapTask(data: AppData, id: TaskId, fn: (t: Task) => Task): AppData {
   return { ...data, tasks: data.tasks.map((t) => (t.id === id ? fn(t) : t)) };
+}
+
+/**
+ * Move one sub-stat by `points`, clamped to 0–100.
+ *
+ * The only writer to `vitals` in the whole store. Recovery credit is the single
+ * thing in the app that changes a sub-stat from inside — every other reading
+ * arrives from the seeded world and would, in a real build, come from an
+ * integration. Keeping it to one function means there is exactly one place to
+ * look when a number moves and nobody can say why.
+ */
+function creditVital(data: AppData, id: VitalId, pointsDelta: number): AppData {
+  return {
+    ...data,
+    vitals: data.vitals.map((v) =>
+      v.id === id ? { ...v, value: Math.max(0, Math.min(100, v.value + pointsDelta)) } : v,
+    ),
+  };
 }
 
 function reducer(state: AppState, action: Action): AppState {
@@ -172,30 +197,52 @@ function reducer(state: AppState, action: Action): AppState {
     case 'boot/fail':
       return { ...state, boot: { status: 'error', data: null, error: action.error } };
 
-    case 'task/toggle':
+    case 'task/toggle': {
+      const target = data.tasks.find((t) => t.id === action.id);
+      const closing = target != null && target.status !== 'done';
+
+      const next = mapTask(data, action.id, (t) =>
+        t.status === 'done'
+          ? {
+              ...t,
+              status: 'open',
+              completedAt: null,
+              // Re-opening clears the step stamps too, or the timeline would
+              // go on drawing an open task's work in this morning's slots.
+              subtasks: t.subtasks.map((s) => ({ ...s, done: false, completedAt: null })),
+            }
+          : {
+              ...t,
+              status: 'done',
+              completedAt: action.at,
+              // Closing a parent closes what is left under it.
+              subtasks: t.subtasks.map((s) =>
+                s.done ? s : { ...s, done: true, completedAt: action.at },
+              ),
+            },
+      );
+
+      /*
+       * Recovery pays out here, and only here.
+       *
+       * This is the whole point of the recovery half of the Rebalancer: going
+       * for the run has to actually move the number, or the app has asked
+       * someone to spend forty minutes on a promise it does not keep. Crediting
+       * on completion rather than on acceptance is the honest placement —
+       * agreeing to rest is not rest.
+       *
+       * The credit is symmetric. Un-ticking takes the points back, because a
+       * completion you reversed is not a thing that happened, and a reserve
+       * that only ever ratchets upward would be trivially farmable by anyone
+       * who noticed.
+       */
       return {
         ...state,
-        data: mapTask(data, action.id, (t) =>
-          t.status === 'done'
-            ? {
-                ...t,
-                status: 'open',
-                completedAt: null,
-                // Re-opening clears the step stamps too, or the timeline would
-                // go on drawing an open task's work in this morning's slots.
-                subtasks: t.subtasks.map((s) => ({ ...s, done: false, completedAt: null })),
-              }
-            : {
-                ...t,
-                status: 'done',
-                completedAt: action.at,
-                // Closing a parent closes what is left under it.
-                subtasks: t.subtasks.map((s) =>
-                  s.done ? s : { ...s, done: true, completedAt: action.at },
-                ),
-              },
-        ),
+        data: target?.recovery
+          ? creditVital(next, target.recovery.vitalId, closing ? target.recovery.lift : -target.recovery.lift)
+          : next,
       };
+    }
 
     case 'task/toggleSub': {
       const owner = data.tasks.find((t) => t.id === action.id);
@@ -330,6 +377,40 @@ function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
+
+    /*
+     * A recovery suggestion becomes a real task.
+     *
+     * Not a separate "wellbeing" list living beside the manifest — an actual
+     * row on the actual timeline, competing for the actual day. Unscheduled
+     * recovery does not happen: a student with a heavy week and a suggestion to
+     * rest more will not rest more, and the only version of this that survives
+     * a Tuesday is one that has a block on the rail like everything else.
+     */
+    case 'recovery/add':
+      return { ...state, data: { ...data, tasks: [...data.tasks, action.task] } };
+
+    /*
+     * The one reading in the app that is not arithmetic.
+     *
+     * `recordCheckIn` replaces any existing answer for the same day and
+     * re-derives the bias over the window — see `calibration.ts` for why the
+     * correction lands on Vitality and never on Pressure.
+     */
+    case 'checkin/record':
+      return {
+        ...state,
+        data: {
+          ...data,
+          calibration: recordCheckIn(data.calibration, {
+            date: action.date,
+            felt: action.felt,
+            computed: action.computed,
+            pressure: action.pressure,
+            vitality: action.vitality,
+          }),
+        },
+      };
 
     case 'category/add': {
       const id = slugify(
@@ -515,6 +596,24 @@ export interface AppApi {
    */
   applyRebalance: (moves: Move[]) => void;
 
+  /**
+   * Commit a recovery suggestion as a real, scheduled task.
+   *
+   * Returns the task so the caller can route straight into its timer — the
+   * sit-still actions are ones people accept and then immediately want to
+   * start, and making them go and find the row first is where the intention
+   * gets lost.
+   */
+  addRecovery: (suggestion: RecoverySuggestion) => Task;
+
+  /**
+   * Log how the day actually felt against what Pip computed.
+   *
+   * The only write in the app that teaches the model something it could not
+   * have derived. One per day; answering twice corrects rather than appends.
+   */
+  recordFeeling: (felt: PipStateName, computed: PipStateName, pressure: number, vitality: number) => void;
+
   /** Categories are the user's own — they can add, rename and retire them. */
   addCategory: (label: string, icon: IconName) => void;
   patchCategory: (id: CategoryId, patch: Partial<Omit<Category, 'id'>>) => void;
@@ -630,6 +729,44 @@ function materialise(p: ProposedTask, resources: Resource[]): Task {
   };
 }
 
+/**
+ * A recovery suggestion, as a schedulable task.
+ *
+ * Due TODAY, and deliberately so. Recovery with no date is recovery that
+ * happens after everything else, which means never — the whole reason these are
+ * tasks rather than advice is that a block on today's rail is the only version
+ * of "go for a walk" that survives a heavy week. It lands at the end of the
+ * planning window so it does not shoulder real deadlines out of the way; the
+ * scheduler places it in whatever gap is left.
+ *
+ * No sub-tasks. Breaking "take a nap" into steps would be the app failing to
+ * understand its own suggestion.
+ */
+function recoveryTask(suggestion: RecoverySuggestion): Task {
+  const now = new Date();
+  const due = new Date(now);
+  due.setHours(DAY_END_HOUR, 0, 0, 0);
+
+  return {
+    id: uid('t'),
+    title: suggestion.action.title,
+    status: 'open',
+    categoryId: RECOVERY_CATEGORY,
+    dueAt: due.toISOString(),
+    estimateMin: suggestion.action.minutes,
+    // Always low. A recovery block is not a heavy commitment, and rendering it
+    // beside the midterm at the same weight would make resting look like work.
+    load: 'low',
+    icon: 'Heart',
+    createdAt: now.toISOString(),
+    completedAt: null,
+    subtasks: [],
+    resources: [],
+    pipNote: suggestion.action.blurb,
+    recovery: recoveryMeta(suggestion),
+  };
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -690,6 +827,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       applyRebalance: (moves) =>
         dispatch({ type: 'rebalance/apply', moves, at: new Date().toISOString() }),
 
+      addRecovery: (suggestion) => {
+        const task = recoveryTask(suggestion);
+        dispatch({ type: 'recovery/add', task });
+        return task;
+      },
+
+      recordFeeling: (felt, computed, pressure, vitality) =>
+        dispatch({
+          type: 'checkin/record',
+          felt,
+          computed,
+          pressure,
+          vitality,
+          date: isoDate(new Date()),
+        }),
+
       addCategory: (label, icon) => dispatch({ type: 'category/add', label, icon }),
       patchCategory: (id, patch) => dispatch({ type: 'category/patch', id, patch }),
       archiveCategory: (id, on) => dispatch({ type: 'category/archive', id, on }),
@@ -723,14 +876,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const first = note != null && !claimed.has(proposal.sourceId);
           if (first) claimed.add(proposal.sourceId);
 
+          /*
+           * The FILE follows, not just its name.
+           *
+           * This used to keep `name`, `kind` and `size` and drop `uri` on the
+           * floor, which meant a student who photographed a whiteboard and said
+           * one sentence about it got a task carrying a greyed-out filename and
+           * no way back to the photo. The attachment survived triage as its own
+           * epitaph.
+           *
+           * Carrying `uri`, the real attachment kind and any duration means
+           * Task Detail can render the thumbnail, show "0:42" on a voice memo,
+           * and actually open the thing.
+           */
           const resources: Resource[] =
             first && note
-              ? note.attachments.map((a) => ({
-                  id: a.id,
-                  name: a.name,
-                  kind: RESOURCE_LABEL[a.kind],
-                  size: formatBytes(a.sizeBytes),
-                }))
+              ? [
+                  ...note.attachments.map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    kind: RESOURCE_LABEL[a.kind],
+                    size: formatBytes(a.sizeBytes),
+                    uri: a.uri,
+                    attachmentKind: a.kind,
+                    durationSec: a.durationSec,
+                  })),
+                  /*
+                   * The voice note itself counts as an attachment.
+                   *
+                   * A capture recorded by speaking has its transcript carried
+                   * into the task title and steps, and the recording behind it
+                   * vanished — which is the one piece a student might actually
+                   * want back, because a transcript of yourself thinking aloud
+                   * loses most of what you meant. There is no audio file to
+                   * point at until recording is real, so this is listed
+                   * honestly: a row that says what it is and how long it ran,
+                   * with no `uri` and therefore no open affordance.
+                   */
+                  ...(note.kind === 'voice'
+                    ? [
+                        {
+                          id: `${note.id}_voice`,
+                          name: 'Original voice note',
+                          kind: RESOURCE_LABEL.audio,
+                          size: formatBytes(undefined),
+                          attachmentKind: 'audio' as const,
+                          durationSec: note.durationSec,
+                        },
+                      ]
+                    : []),
+                ]
               : [];
 
           return materialise(proposal, resources);

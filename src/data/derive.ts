@@ -87,6 +87,17 @@ export function completedOn(tasks: Task[], day: Date): Task[] {
  */
 export function taskPressure(task: Task, now: Date = new Date()): number {
   if (task.status !== 'open') return 0;
+  /*
+   * Recovery is weightless.
+   *
+   * A recovery block takes real time and is scheduled like any other, so it
+   * shows up on the rail and competes for the day — but it must not raise the
+   * number the app is asking the student to lower. Otherwise the Rebalancer
+   * proposes a nap, the student accepts it, and Pressure goes UP: the app would
+   * have made resting expensive, which is the single thing it cannot afford to
+   * do.
+   */
+  if (task.recovery) return 0;
   return loadPercent(task) * urgency(task, now) * remainingShare(task);
 }
 
@@ -249,10 +260,11 @@ export function deriveVitality(
   vitals: Vital[],
   model: VitalityModel,
   now: Date = new Date(),
+  bias = 0,
 ): number {
   const overdue = openTasks(tasks).filter((t) => isOverdue(t.dueAt, now)).length;
   const finishedToday = completedOn(tasks, now).length;
-  return clamp(vitalityBase(vitals, model) - overdue * 8 + finishedToday * 3);
+  return clamp(vitalityBase(vitals, model) - overdue * 8 + finishedToday * 3 + bias);
 }
 
 /**
@@ -343,7 +355,13 @@ function vitalityNote(readings: VitalReading[], finishedToday: number): string {
 
 export function deriveCapacity(data: AppData, now: Date = new Date()): Capacity {
   const pressure = derivePressure(data.tasks, now);
-  const vitality = deriveVitality(data.tasks, data.vitals, data.vitalityModel, now);
+  const vitality = deriveVitality(
+    data.tasks,
+    data.vitals,
+    data.vitalityModel,
+    now,
+    data.calibration?.vitalityBias ?? 0,
+  );
   return {
     pressure,
     vitality,
@@ -410,22 +428,24 @@ export function forecastAhead(
   const drag = pressure >= 70 ? 6 : pressure >= 50 ? 3 : 0;
   const overdue = openTasks(projected).filter((t) => isOverdue(t.dueAt, tomorrow)).length;
   const cleared = completedOn(projected, now).length;
+  // The learned bias travels with the projection. A forecast built on the raw
+  // model while the gauge above it shows the calibrated one would have the two
+  // numbers disagreeing by exactly the amount the app claims to have learned.
   const vitality = clamp(
-    vitalityBase(data.vitals, data.vitalityModel) - overdue * 8 + cleared * 3 - drag,
+    vitalityBase(data.vitals, data.vitalityModel) -
+      overdue * 8 +
+      cleared * 3 -
+      drag +
+      (data.calibration?.vitalityBias ?? 0),
   );
 
   const today = deriveCapacity(data, now);
-  const left = [...planned].length;
 
   return {
     pressure,
     vitality,
     pressureDelta: pressure - today.pressure,
     vitalityDelta: vitality - today.vitality,
-    note:
-      left === 0
-        ? 'Nothing is planned for today, so tomorrow opens where today closes.'
-        : 'Assuming you finish today’s plan and your sub-stats hold.',
   };
 }
 

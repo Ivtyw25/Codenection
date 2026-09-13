@@ -24,8 +24,13 @@ export interface ForecastRowProps {
  * and vitality functions over tomorrow morning with today's scheduled blocks
  * marked done, so it prices the exact promise the timeline is already making.
  *
- * The assumption is printed, always. A forecast that hides what it assumed is
- * how a wellbeing app ends up quietly blamed for being wrong.
+ * THE HEADING CARRIES THE ASSUMPTION. There used to be a line of small print
+ * underneath — "Assuming you finish today's plan and your sub-stats hold" —
+ * which was the right instinct in the wrong place: a forecast that hides what
+ * it assumed deserves to be blamed when it is wrong, but a caveat set below the
+ * numbers in caption grey is read by nobody and simply made the block taller.
+ * "Projected after today ends" says the same thing in the label the eye lands
+ * on first, and says it in four words instead of eleven.
  */
 export function ForecastRow({ forecast, pressure, vitality, size = 'row' }: ForecastRowProps) {
   const scheme = useScheme();
@@ -33,7 +38,7 @@ export function ForecastRow({ forecast, pressure, vitality, size = 'row' }: Fore
   return (
     <View style={[styles.root, { backgroundColor: scheme.surfaceAlt }]}>
       <Txt variant="caption" muted style={styles.eyebrow}>
-        TOMORROW, IF TODAY GOES TO PLAN
+        PROJECTED AFTER TODAY ENDS
       </Txt>
 
       <Line
@@ -52,10 +57,6 @@ export function ForecastRow({ forecast, pressure, vitality, size = 'row' }: Fore
         delta={forecast.vitalityDelta}
         size={size}
       />
-
-      <Txt variant="caption" color={scheme.textMuted}>
-        {forecast.note}
-      </Txt>
     </View>
   );
 }

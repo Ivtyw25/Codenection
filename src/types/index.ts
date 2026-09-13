@@ -174,6 +174,45 @@ export interface Resource {
   size: string;
   /** Open-external vs. download affordance. */
   external?: boolean;
+  /**
+   * Where the file actually is, when it came off a capture.
+   *
+   * The capture tray holds a real local `uri` and Task Detail used to throw it
+   * away on commit, so a student who photographed a whiteboard and said a
+   * sentence about it got a task with a greyed-out filename on it and no way
+   * back to the photo. Carrying the three fields below means the attachment
+   * survives triage instead of being reduced to its own metadata.
+   *
+   * Undefined on seeded or authored resources, which never had a file behind
+   * them — the row falls back to the non-openable rendering.
+   */
+  uri?: string;
+  /** What it is, for the icon and the thumbnail. */
+  attachmentKind?: AttachmentKind;
+  /** Seconds, for audio and video. */
+  durationSec?: number;
+}
+
+/**
+ * What a recovery task is worth, and to which sub-stat.
+ *
+ * Present only on tasks the Rebalancer created from a recovery suggestion. It
+ * is what makes "go for a run" a move in the model rather than a nice sentence:
+ * closing the task credits `lift` points to `vitalId`, and re-opening it takes
+ * them back.
+ *
+ * `timerSec` marks the sit-still kinds — meditation, a nap, a reading block.
+ * Those get the timer screen, because the doing of them is the whole task and a
+ * checkbox is a poor instrument for "sit here for twenty minutes".
+ */
+export interface RecoveryMeta {
+  vitalId: VitalId;
+  /** Points added to that sub-stat on completion. */
+  lift: number;
+  /** Seconds, when this is a timed sit-still action. */
+  timerSec?: number;
+  /** Which catalogue entry produced it — so the same one is not re-offered. */
+  actionId: string;
 }
 
 export interface Task {
@@ -213,6 +252,15 @@ export interface Task {
    */
   postponedFrom?: string | null;
   postponeCount?: number;
+  /**
+   * Set when the Rebalancer created this as a recovery action.
+   *
+   * A recovery task costs real time and is scheduled like anything else, but it
+   * is deliberately weightless in `taskPressure`. An app that tells you to rest
+   * and then reports you as more loaded for agreeing has just made resting
+   * expensive, which is the one thing it must not do.
+   */
+  recovery?: RecoveryMeta;
 }
 
 /** What the Manifest filters by. `all` is the unfiltered pseudo-category. */
@@ -455,8 +503,6 @@ export interface Forecast {
   /** Signed change from today's reading. */
   pressureDelta: number;
   vitalityDelta: number;
-  /** What the projection assumes, said plainly. */
-  note: string;
 }
 
 /** One sub-stat, resolved against the user's own model. */
@@ -517,6 +563,57 @@ export interface VitalityModel {
 
 /** How a reading sits against this user's own target. */
 export type VitalStanding = 'strong' | 'fair' | 'low';
+
+// ── Calibration ─────────────────────────────────────────────────────────────
+
+/**
+ * One day's answer to "does this actually match how you feel?".
+ *
+ * STORED, and the only reading in the app that did not come from arithmetic.
+ * Everything else here is a function of the task list — which is exactly the
+ * limit of it. Pressure can count the minutes a week contains and still be
+ * wrong about what carrying them costs *this* person, and a wellbeing score
+ * that has no way to be told it is wrong is not a wellbeing score, it is a
+ * verdict.
+ *
+ * `felt` and `computed` are both `PipStateName`, so the comparison is made in
+ * the vocabulary the app already shows the student rather than by asking them
+ * to produce a number out of thin air.
+ */
+export interface CheckIn {
+  /** ISO date, no time. One per day; a second answer replaces the first. */
+  date: string;
+  /** How the day actually felt. */
+  felt: PipStateName;
+  /** What Pip had computed at the moment they answered. */
+  computed: PipStateName;
+  /** The readings behind `computed`, kept so the record is auditable. */
+  pressure: number;
+  vitality: number;
+}
+
+/**
+ * What the check-ins have taught the app, applied back to the reserve.
+ *
+ * The bias lands on VITALITY and never on Pressure. Pressure is arithmetic over
+ * work that demonstrably exists — so many tasks, so many minutes, these
+ * deadlines — and quietly bending it because someone had a bad Tuesday would
+ * corrupt the one number in the app that is checkable. Vitality is the half
+ * that is genuinely about the person, so it is the half that learns.
+ *
+ * Clamped hard, and derived from an average rather than the last answer: one
+ * rough day is noise, and a model that lurched after every check-in would make
+ * the gauge useless to anyone who has ever had a rough day.
+ */
+export interface Calibration {
+  /** Most recent last. Trimmed to the window the bias is averaged over. */
+  entries: CheckIn[];
+  /**
+   * Points added to the derived Vitality reading. Negative means this student
+   * consistently feels worse than their task list alone would suggest.
+   */
+  vitalityBias: number;
+}
 
 /** STORED. One closed day — what Reflect reads and what the streak counts. */
 export interface DayRecord {
@@ -620,6 +717,8 @@ export interface AppData {
   vitals: Vital[];
   /** How `vitals` become one Vitality score, calibrated to this user. */
   vitalityModel: VitalityModel;
+  /** What the daily check-ins have taught the app about this person. */
+  calibration: Calibration;
   history: DayRecord[];
   shop: ShopItem[];
   notifications: AppNotification[];

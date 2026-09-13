@@ -26,6 +26,21 @@
 import type { Category, CategoryId, IconName } from '@/types';
 
 /**
+ * Where the Rebalancer files accepted recovery actions.
+ *
+ * A category of its own rather than folding them into Personal, because these
+ * behave differently from everything else in the app: they are weightless in
+ * `taskPressure`, they credit a sub-stat on completion, and the scan needs to
+ * be able to see at a glance what it has already proposed. Mixing them into a
+ * category the user also uses for dentist appointments would make all three of
+ * those ambiguous.
+ *
+ * Declared above `DEFAULT_CATEGORIES` because that array reads it at module
+ * load.
+ */
+export const RECOVERY_CATEGORY: CategoryId = 'recovery';
+
+/**
  * What a new user starts with.
  *
  * A starting point, explicitly not a schema. Onboarding's discovery step is
@@ -88,6 +103,17 @@ export const DEFAULT_CATEGORIES: Category[] = [
     // Your appointments, your body, your family. Not transferable.
     shareable: false,
     match: ['gym', 'run', 'workout', 'doctor', 'dentist', 'appointment', 'call home', 'rent'],
+  },
+  {
+    id: RECOVERY_CATEGORY,
+    label: 'Recovery',
+    icon: 'Sparkles',
+    // Nobody can nap, walk or sit quietly on your behalf.
+    shareable: false,
+    // Never matched from a capture. Recovery work is only ever created by the
+    // Rebalancer accepting a suggestion — routing a student's own note here
+    // because they typed "run" would file their 10k training plan as rest.
+    match: [],
   },
 ];
 

@@ -386,11 +386,25 @@ export function planRebalance(
   teammates: Teammate[],
   categories: Category[],
   now: Date = new Date(),
+  options: { force?: boolean } = {},
 ): RebalancePlan {
   const before = derivePressure(tasks, now);
   const aids = breakdownAid(tasks, categories);
 
-  if (before < REBALANCE_THRESHOLD) {
+  /*
+   * `force` is the user asking, rather than the app deciding.
+   *
+   * The threshold exists to stop Pip from volunteering a rebalance during an
+   * ordinary week — an app that offers to cancel your commitments every Tuesday
+   * is nagging with a spreadsheet. But it has no business refusing a scan the
+   * student explicitly pressed a button to run: "you did not ask correctly" is
+   * not a thing this app gets to say.
+   *
+   * The ladder below still declines to propose moves that buy nothing, so an
+   * explicitly-scanned quiet week honestly reports that there is nothing to
+   * move rather than inventing something to justify the tap.
+   */
+  if (before < REBALANCE_THRESHOLD && !options.force) {
     return {
       before,
       after: before,
@@ -460,7 +474,14 @@ export function planRebalance(
     aids,
     note:
       chosen.length === 0
-        ? 'Pip could not find anything safe to move. What is left is work only you can do, on deadlines that will not shift — so the honest answer is rest, not rearrangement.'
+        ? // Two very different silences, and telling them apart matters. A week
+          // that is already under its limits has nothing to move because
+          // nothing is wrong; a week over its limits with nothing safe to move
+          // is a much harder message, and softening it into the first would be
+          // the app declining to say the one true thing it knows.
+          before <= REBALANCE_TARGET
+          ? 'Your week is inside its limits. There is nothing to move — Pip is not going to invent a problem to justify the scan.'
+          : 'Pip could not find anything safe to move. What is left is work only you can do, on deadlines that will not shift — so the honest answer is rest, not rearrangement.'
         : after <= REBALANCE_TARGET
           ? `${chosen.length} ${chosen.length === 1 ? 'move' : 'moves'} takes ${relieved} points off and brings the week back inside its limits.`
           : `${chosen.length} ${chosen.length === 1 ? 'move' : 'moves'} takes ${relieved} points off. That is everything Pip can safely move — the rest is genuinely yours.`,

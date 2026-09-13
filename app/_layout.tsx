@@ -166,15 +166,15 @@ function Routes() {
       <Stack.Screen name="delegate" options={{ animation: 'slide_from_right' }} />
 
       {/*
-        The Rebalancer rises from the bottom, like Capture and Review.
+        The recovery timer.
 
-        It is deliberately NOT a push. A push reads as "going deeper into your
-        task list", which is the opposite of what this screen does; a sheet
-        reads as something offered, that you can dismiss by pushing it back
-        down. For a screen whose whole proposition is "you are allowed to put
-        things down", the gesture matters.
+        Rises from the bottom and covers everything, including the tab bar. It
+        is the only screen in this app whose job is to be looked away from, and
+        leaving navigation visible around the edge of a ten-minute sit would be
+        leaving the exits lit — the whole point is that for these ten minutes
+        there is nowhere else to be.
       */}
-      <Stack.Screen name="rebalance" options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="timer/[id]" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="categories" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );

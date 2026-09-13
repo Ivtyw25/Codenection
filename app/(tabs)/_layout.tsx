@@ -1,6 +1,6 @@
 import { Platform, StyleSheet, View } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
-import { BarChart3, CheckSquare, Home, Plus, User } from 'lucide-react-native';
+import { BarChart3, CheckSquare, Home, Plus, Scale } from 'lucide-react-native';
 
 import { useApp } from '@/store/AppStore';
 import { radius, space, type, useScheme } from '@/theme';
@@ -109,12 +109,24 @@ export default function TabsLayout() {
           ),
         }}
       />
+      {/*
+        Rebalance takes the slot Profile used to hold.
+
+        Profile was a settings drawer wearing a tab's clothes — a name, a Sparks
+        count and three links, none of which anybody visits twice a week. The
+        Rebalancer is the app's actual thesis ("you are allowed to put things
+        down") and it was reachable only through a banner that appeared on Home
+        when the week had already gone wrong, which is precisely the moment a
+        student is least likely to go looking for anything. Giving it a
+        permanent slot means it can be used *before* the bad week, which is the
+        only time rearranging a week is cheap.
+      */}
       <Tabs.Screen
-        name="profile"
+        name="rebalance"
         options={{
-          title: 'Profile',
+          title: 'Rebalance',
           tabBarIcon: ({ color, focused }) => (
-            <User size={22} color={color} strokeWidth={focused ? 2.4 : 2} />
+            <Scale size={22} color={color} strokeWidth={focused ? 2.4 : 2} />
           ),
         }}
       />
@@ -125,6 +137,12 @@ export default function TabsLayout() {
         and the tab bar stays visible while you are there.
       */}
       <Tabs.Screen name="pip" options={{ href: null }} />
+      {/*
+        Profile likewise. It keeps everything it had — identity, Sparks, the
+        Shop, the inbox, the category editor, settings — and is reached from the
+        avatar in Home's header instead of costing a fifth of the tab bar.
+      */}
+      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }

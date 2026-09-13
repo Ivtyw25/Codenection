@@ -21,6 +21,13 @@
     "types": ["node"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/data/rebalance.ts", "src/data/derive.ts", "src/data/categories.ts", "src/data/seed.ts"],
+  "include": [
+    "src/data/rebalance.ts",
+    "src/data/derive.ts",
+    "src/data/categories.ts",
+    "src/data/seed.ts",
+    "src/data/calibration.ts",
+    "src/data/recovery.ts"
+  ],
   "exclude": ["node_modules"]
 }

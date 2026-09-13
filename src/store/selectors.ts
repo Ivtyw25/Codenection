@@ -23,9 +23,11 @@ import {
   readVitals,
   vitalSeries,
 } from '@/data/derive';
+import { calibrationNote, checkInOn } from '@/data/calibration';
 import { activeCategories, findCategory } from '@/data/categories';
 import { explainVital, type VitalExplanation } from '@/data/explain';
 import { planRebalance, type RebalancePlan } from '@/data/rebalance';
+import { suggestRecovery, takenActions, type RecoverySuggestion } from '@/data/recovery';
 import {
   buildSchedule,
   plannedMinutes,
@@ -41,6 +43,7 @@ import type {
   Category,
   CategoryId,
   CategoryLoad,
+  CheckIn,
   Forecast,
   PipState,
   ProposedTask,
@@ -167,13 +170,60 @@ export function useCategoryCounts(): Record<string, number> {
  * cached from whenever the banner first appeared. Ticking something off and
  * re-opening the sheet genuinely produces a smaller plan.
  */
-export function useRebalancePlan(): RebalancePlan {
+export function useRebalancePlan(force = false): RebalancePlan {
   const { data } = useApp();
   const now = useNow();
   return useMemo(
-    () => planRebalance(data.tasks, data.teammates, data.categories, now),
-    [data.tasks, data.teammates, data.categories, now],
+    () => planRebalance(data.tasks, data.teammates, data.categories, now, { force }),
+    [data.tasks, data.teammates, data.categories, now, force],
   );
+}
+
+/**
+ * Recovery actions worth offering this person, weakest sub-stat first.
+ *
+ * Reads the same `VitalReading[]` the detail pages do, so a suggestion can only
+ * ever appear for a sub-stat the student can see is under its line. Actions
+ * already committed as open tasks are excluded — re-proposing the run somebody
+ * accepted this morning is how a helpful list becomes wallpaper.
+ */
+export function useRecoverySuggestions(): RecoverySuggestion[] {
+  const { data } = useApp();
+  const readings = useVitals();
+  return useMemo(
+    () => suggestRecovery(readings, takenActions(data.tasks)),
+    [readings, data.tasks],
+  );
+}
+
+// ── Calibration ─────────────────────────────────────────────────────────────
+
+/**
+ * Today's check-in and what the app has learned so far.
+ *
+ * `answered` gates the Home card: the question is asked once a day, and a
+ * wellbeing prompt that reappears after you have answered it is nagging.
+ */
+export function useCheckIn(): {
+  today: CheckIn | null;
+  answered: boolean;
+  note: string | null;
+  bias: number;
+  count: number;
+} {
+  const { data } = useApp();
+  const now = useNow();
+
+  return useMemo(() => {
+    const today = checkInOn(data.calibration, now);
+    return {
+      today,
+      answered: today != null,
+      note: calibrationNote(data.calibration),
+      bias: data.calibration?.vitalityBias ?? 0,
+      count: data.calibration?.entries.length ?? 0,
+    };
+  }, [data.calibration, now]);
 }
 
 // ── Categories ──────────────────────────────────────────────────────────────
