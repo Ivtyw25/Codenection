@@ -28,8 +28,18 @@ import type { RangeFilter } from '@/types';
 const RANGES: { value: RangeFilter; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'tomorrow', label: 'Tomorrow' },
-  { value: 'week', label: 'This Week' },
-  { value: 'all', label: 'Everything' },
+  { value: 'week', label: 'Week' },
+  /*
+   * Overdue earns a tab because it no longer appears anywhere else.
+   *
+   * The scheduler refuses to plan work that is already past its date and
+   * Today's Focus does not show it, on the grounds that a missed deadline is a
+   * decision rather than a block of time. This is where you come to see all of
+   * them at once — the other route is a rebalance, which now guarantees a
+   * proposal for every one.
+   */
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'all', label: 'All' },
 ];
 
 /*
@@ -66,6 +76,9 @@ function weekEnd(anchor: Date): Date {
 /** What the "Showing:" line says, per range. */
 function showingLabel(range: RangeFilter, anchor: Date): string {
   if (range === 'all') return 'Everything';
+  // Anchored to the clock rather than to the day being browsed, so paging the
+  // strip must not make this line claim a date.
+  if (range === 'overdue') return 'Everything past its date';
   if (range === 'week') return `${formatFullDate(anchor)} – ${formatFullDate(weekEnd(anchor))}`;
   return formatFullDate(focusDay(range, anchor));
 }
@@ -309,11 +322,19 @@ export default function TasksScreen() {
           {tasks.length === 0 ? (
             <EmptyState
               icon={<CalendarDays size={26} color={scheme.textMuted} />}
-              title={filtered ? 'Nothing matches this filter' : 'Nothing scheduled'}
+              title={
+                state.query.range === 'overdue'
+                  ? 'Nothing is past its date'
+                  : filtered
+                    ? 'Nothing matches this filter'
+                    : 'Nothing scheduled'
+              }
               body={
-                filtered
-                  ? `No tasks for ${showingLabel(state.query.range, anchor)} in this context.`
-                  : `${formatFullDate(anchor)} is clear. Capture something, or enjoy it.`
+                state.query.range === 'overdue'
+                  ? 'Everything you are carrying is still ahead of its deadline. This is the tab you want to keep empty.'
+                  : filtered
+                    ? `No tasks for ${showingLabel(state.query.range, anchor)} in this context.`
+                    : `${formatFullDate(anchor)} is clear. Capture something, or enjoy it.`
               }
               action={
                 filtered

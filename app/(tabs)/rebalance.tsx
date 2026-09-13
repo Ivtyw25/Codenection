@@ -4,7 +4,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
+  ArrowRight,
   BookOpen,
+  CalendarClock,
   Check,
   Clock,
   Coffee,
@@ -23,8 +25,8 @@ import {
 } from 'lucide-react-native';
 
 import { PipMascot } from '@/components/app';
-import { Button, Card, Checkbox, EmptyState, Txt } from '@/components/ui';
-import { formatEstimate } from '@/data/format';
+import { Button, Card, Checkbox, Chip, EmptyState, Txt } from '@/components/ui';
+import { formatClock, formatDayHeading, formatDueShort, formatEstimate } from '@/data/format';
 import { LEVER_COPY, groupByLever, priceSubset, type Move } from '@/data/rebalance';
 import type { RecoveryIcon, RecoverySuggestion } from '@/data/recovery';
 import { useApp } from '@/store/AppStore';
@@ -34,6 +36,7 @@ import {
   usePipState,
   useRebalancePlan,
   useRecoverySuggestions,
+  type PlannedRecovery,
 } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
 import type { Lever } from '@/types';
@@ -271,6 +274,7 @@ export default function RebalanceScreen() {
                       <MoveRow
                         key={move.id}
                         move={move}
+                        now={now}
                         accepted={!rejected.has(move.id)}
                         onToggle={() => toggle(move.id)}
                       />
@@ -364,6 +368,7 @@ export default function RebalanceScreen() {
                 <RecoveryRow
                   key={suggestion.action.id}
                   suggestion={suggestion}
+                  now={now}
                   onAdd={() => commitRecovery(suggestion)}
                 />
               ))}
@@ -476,14 +481,28 @@ function ScanningState() {
  */
 function RecoveryRow({
   suggestion,
+  now,
   onAdd,
 }: {
-  suggestion: RecoverySuggestion;
+  suggestion: PlannedRecovery;
+  now: Date;
   onAdd: () => void;
 }) {
   const scheme = useScheme();
   const Icon = RECOVERY_ICON[suggestion.action.icon];
   const timed = suggestion.action.timerSec != null;
+
+  /*
+   * The slot, from the real scheduler.
+   *
+   * "Add to today" is a promise about a day that may already be full, and a row
+   * that made it without checking would be the one piece of this screen not
+   * priced against reality. `plannedAt` comes from running the actual planner
+   * over the actual task that would be created.
+   */
+  const when = suggestion.plannedAt
+    ? `${formatDayHeading(suggestion.plannedAt, now).replace(/ · .*$/, '')} ${formatClock(suggestion.plannedAt)}`
+    : 'no room left today';
 
   return (
     <Card style={styles.recovery}>
@@ -493,9 +512,8 @@ function RecoveryRow({
         </View>
         <View style={{ flex: 1, gap: space[0.5] }}>
           <Txt variant="h4">{suggestion.action.title}</Txt>
-          <Txt variant="caption" muted>
-            {formatEstimate(suggestion.action.minutes)} · {suggestion.reading.label}{' '}
-            {suggestion.reading.value} of {suggestion.reading.target}
+          <Txt variant="caption" color={scheme.textSecondary}>
+            {suggestion.action.blurb}
           </Txt>
         </View>
         <Txt variant="label" color={status.success.fg}>
@@ -503,20 +521,29 @@ function RecoveryRow({
         </Txt>
       </View>
 
-      <Txt variant="caption" color={scheme.textSecondary}>
-        {suggestion.action.blurb}
-      </Txt>
+      <View style={styles.recoveryMeta}>
+        <Chip
+          label={`${when.toLowerCase()} · ${formatEstimate(suggestion.action.minutes)}`}
+          size="sm"
+          icon={<CalendarClock size={11} color={scheme.textSecondary} />}
+        />
+        <Chip
+          label={`${suggestion.reading.label} ${suggestion.reading.value}/${suggestion.reading.target}`}
+          size="sm"
+          tone="success"
+        />
+      </View>
 
       <Button
-        label={timed ? 'Add and start' : 'Add to today'}
+        label={timed ? 'Add and start' : 'Add to my plan'}
         variant="secondary"
         size="sm"
         icon={timed ? <Timer size={14} color={scheme.primary} /> : undefined}
         onPress={onAdd}
         accessibilityHint={
           timed
-            ? 'Adds a timed block to today and opens its timer'
-            : 'Adds a block to today. It takes time but adds no pressure.'
+            ? `Schedules ${when} and opens its timer. Raises ${suggestion.reading.label} by ${suggestion.lift} when finished.`
+            : `Schedules ${when}. Takes time, adds no pressure, and raises ${suggestion.reading.label} by ${suggestion.lift} when finished.`
         }
       />
     </Card>
@@ -533,10 +560,12 @@ function RecoveryRow({
  */
 function MoveRow({
   move,
+  now,
   accepted,
   onToggle,
 }: {
   move: Move;
+  now: Date;
   accepted: boolean;
   onToggle: () => void;
 }) {
@@ -559,6 +588,14 @@ function MoveRow({
               {move.title}
             </Txt>
             {/*
+              The Overdue label marks the rows that were generated by a
+              different rule. The ladder proposes what it can afford to move;
+              the rescue pass proposes something for EVERY late task whether or
+              not the arithmetic needed it, and a student scanning the list
+              deserves to know which of these they are looking at.
+            */}
+            {move.overdue ? <Chip label="Overdue" size="sm" tone="danger" variant="filled" /> : null}
+            {/*
               The relief and the cost sit at the same weight, side by side. The
               temptation is to sell the saving and whisper the price — which is
               how an app talks someone out of something they needed.
@@ -571,6 +608,28 @@ function MoveRow({
           <Txt variant="caption" muted>
             {move.reason}
           </Txt>
+
+          {/*
+            The actual dates, not just the size of the jump.
+
+            "Move it out 4 days" tells a student how big the change is and not
+            what it is — and the question in their head is never "how many
+            days?", it is "so when is this happening?". A row they have to do
+            arithmetic on to answer that is a row they will agree to without
+            really reading.
+          */}
+          {move.newDueAt ? (
+            <View style={styles.dates}>
+              <Txt variant="caption" color={scheme.textMuted} style={styles.strike}>
+                {formatDueShort(move.fromDueAt ?? null, now)}
+              </Txt>
+              <ArrowRight size={11} color={scheme.textMuted} />
+              <Txt variant="caption" color={status.success.fg}>
+                {formatDueShort(move.newDueAt, now)}
+              </Txt>
+            </View>
+          ) : null}
+
           <Txt variant="caption" color={scheme.textSecondary}>
             {move.cost}
           </Txt>
@@ -610,7 +669,10 @@ const styles = StyleSheet.create({
   moveHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
 
   recovery: { gap: space[2], padding: space[3] },
-  recoveryHead: { flexDirection: 'row', alignItems: 'center', gap: space[2.5] },
+  recoveryHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2.5] },
+  recoveryMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1.5] },
+  dates: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
+  strike: { textDecorationLine: 'line-through' },
   recoveryIcon: {
     width: 32,
     height: 32,

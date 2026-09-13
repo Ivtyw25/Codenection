@@ -126,7 +126,39 @@ const TASKS: Task[] = [
       },
     ],
     notes: 'Closed book, one A4 sheet allowed. Trees and hashing carry the most marks.',
-    resources: [],
+    /*
+     * Real context, carried on the task.
+     *
+     * Every seeded resource here is the kind of file a student would genuinely
+     * have open beside this work — a past paper, a slide deck, a marking rubric.
+     * They deliberately have no `uri`: there is no file storage behind this
+     * build, so `ResourceRow` renders them without an open affordance rather
+     * than offering a button that does nothing. Listing what a task depends on
+     * is useful on its own; pretending to hold it would not be.
+     */
+    resources: [
+      {
+        id: 'r_ds_paper',
+        name: 'DS_past_year_2024.pdf',
+        kind: 'PDF',
+        size: '2.4 MB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_ds_slides',
+        name: 'Week 7–10 — Trees & Hashing.pdf',
+        kind: 'PDF',
+        size: '8.1 MB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_ds_sheet',
+        name: 'cheatsheet_draft.docx',
+        kind: 'Doc',
+        size: '48 KB',
+        attachmentKind: 'document',
+      },
+    ],
     pipNote:
       'The past-year paper is the only step that tells you anything — everything before it is setup. Guard the slot for it.',
   },
@@ -184,7 +216,29 @@ const TASKS: Task[] = [
         delegatedTo: null,
       },
     ],
-    resources: [],
+    resources: [
+      {
+        id: 'r_se_brief',
+        name: 'SE_group_assignment_brief.pdf',
+        kind: 'PDF',
+        size: '640 KB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_se_rubric',
+        name: 'marking_rubric.pdf',
+        kind: 'PDF',
+        size: '212 KB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_se_repo',
+        name: 'Team repo — sprint-3 branch',
+        kind: 'Link',
+        size: '—',
+        external: true,
+      },
+    ],
   },
   {
     id: 't_club',
@@ -316,7 +370,22 @@ const TASKS: Task[] = [
         completedAt: null,
       },
     ],
-    resources: [],
+    resources: [
+      {
+        id: 'r_lab_data',
+        name: 'lab4_capture.pcap',
+        kind: 'File',
+        size: '14.7 MB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_lab_template',
+        name: 'Networks_lab_report_template.docx',
+        kind: 'Doc',
+        size: '96 KB',
+        attachmentKind: 'document',
+      },
+    ],
     pipNote:
       'This one is already late, so it is costing you twice what it would have on Friday. It is the first thing worth clearing.',
   },
@@ -352,7 +421,22 @@ const TASKS: Task[] = [
         completedAt: null,
       },
     ],
-    resources: [],
+    resources: [
+      {
+        id: 'r_essay_prompt',
+        name: 'Ethics_essay_prompt.pdf',
+        kind: 'PDF',
+        size: '184 KB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_essay_reading',
+        name: 'Reading list — weeks 1–6.pdf',
+        kind: 'PDF',
+        size: '1.1 MB',
+        attachmentKind: 'document',
+      },
+    ],
   },
   {
     id: 't_standup',
@@ -386,7 +470,22 @@ const TASKS: Task[] = [
         completedAt: null,
       },
     ],
-    resources: [],
+    resources: [
+      {
+        id: 'r_demo_deck',
+        name: 'sprint3_demo_deck.pptx',
+        kind: 'Slides',
+        size: '5.2 MB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_demo_notes',
+        name: 'standup_notes.md',
+        kind: 'Text',
+        size: '7 KB',
+        attachmentKind: 'document',
+      },
+    ],
     pipNote:
       'Assigned to you by name, so Pip will not offer to hand this one off. Moving it is the only lever here.',
   },

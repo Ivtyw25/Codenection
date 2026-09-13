@@ -7,6 +7,7 @@ export * from './InboxRow';
 export * from './LoadBreakdown';
 export * from './NotificationsDrawer';
 export * from './PipMascot';
+export * from './ReassignSheet';
 export * from './PipRecorder';
 export * from './StatTile';
 export * from './StreakDrawer';

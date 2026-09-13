@@ -36,7 +36,6 @@
  * on either.
  */
 import type { Capacity, VitalId, VitalReading } from '@/types';
-import { formatDayHeading } from './format';
 
 export interface VitalExplanation {
   /** The one-line read, shown at body size above the paragraphs. */
@@ -126,6 +125,20 @@ export function explainVital(
   const mechanism = MECHANISM[reading.id];
   const pct = Math.round(reading.weight * 100);
 
+  /*
+   * TWO paragraphs, hard cap.
+   *
+   * This was four to five, each of them individually justified — where it sits,
+   * how long the run is, what the gap costs via the weight, and a Pressure
+   * cross-link. Read on the screen it was a wall of text on the one page
+   * somebody opens when they already feel flat, and the honest test is that
+   * nobody reaches the fourth paragraph about their own sleep.
+   *
+   * So it says the two things only prose can say — what is happening, and what
+   * is causing it — and lets the chart, the chips and the projection carry the
+   * rest. Every number that used to be argued in a sentence is still on the
+   * screen; it is just rendered instead of narrated.
+   */
   const paragraphs: string[] = [];
 
   /*
@@ -135,64 +148,47 @@ export function explainVital(
    * 9 since Monday" as separate bullets makes the reader work out that the
    * second explains the first; as one sentence it simply says so.
    */
-  const when = first ? formatDayHeading(first.date).replace(/^TODAY · |^TOMORROW · /, '') : '';
   if (under && since <= -3) {
     paragraphs.push(
-      `${reading.label} is at ${reading.value}, which is ${-gap} under the ${reading.target} you should be staying above. It has been sliding since ${when} — down ${points(-since)} across the week — and ${mechanism.slide}.`,
+      `Down ${points(-since)} this week and ${-gap} under the ${reading.target} it needs to stay above — ${mechanism.slide}.`,
     );
   } else if (under) {
     paragraphs.push(
-      `${reading.label} is at ${reading.value}, ${-gap} under the ${reading.target} you should be staying above. It has not fallen far this week; it simply has not come back up, and ${mechanism.slide}.`,
+      `Sitting ${-gap} under the ${reading.target} it needs to stay above. It has not fallen far; it just has not come back, and ${mechanism.slide}.`,
     );
   } else if (since >= 3) {
     paragraphs.push(
-      `${reading.label} is at ${reading.value}, comfortably above the ${reading.target} you need to stay over, and it has climbed ${points(since)} since ${when}. Right now ${mechanism.hold}.`,
+      `Up ${points(since)} this week and clear of the ${reading.target} it needs to stay above — ${mechanism.hold}.`,
     );
   } else {
     paragraphs.push(
-      `${reading.label} is at ${reading.value}, holding above the ${reading.target} you need to stay over and steady within a few points all week. ${capitalise(mechanism.hold)}.`,
+      `Holding above the ${reading.target} it needs to stay above, steady within a few points all week — ${mechanism.hold}.`,
     );
   }
 
   /*
-   * 2. The run. This is the paragraph that turns a reading into a pattern, and
-   * it is the one a person most needs, because a single bad day is noise and
-   * five in a row is a thing that is happening to them.
+   * 2. What is actually breaking. A run turns a reading into a pattern, which
+   * is the one thing the chart above cannot say on its own — and if there is no
+   * run, the cost of the gap is the more useful second sentence. One or the
+   * other, never both.
    */
   if (run >= 3) {
     paragraphs.push(
-      `This is ${days(run)} in a row below your mark, which is long enough to be a pattern rather than a bad night. That is what is breaking here — not the size of any one day, but that nothing has interrupted the run, and ${mechanism.slow}.`,
+      `${capitalise(days(run))} in a row below the line now — a pattern rather than a bad night, and ${mechanism.slow}.`,
     );
   } else if (run > 0 && step <= -4) {
     paragraphs.push(
-      `It dropped ${points(-step)} since yesterday, so this is a recent dip rather than a settled pattern — which is the easiest possible moment to interrupt it, because ${mechanism.slow}.`,
+      `It dropped ${points(-step)} since yesterday, so this is a dip rather than a pattern — the easiest moment to interrupt it, because ${mechanism.slow}.`,
     );
-  }
-
-  /*
-   * 3. What the gap costs, via this stat's own weight. The whole reason the
-   * weights are visible: a fifteen-point hole in a 15%-weight stat is worth two
-   * points of reserve, and a student deciding where to spend a tired evening
-   * deserves to know that before they spend it.
-   */
-  if (under) {
+  } else if (under) {
     paragraphs.push(
-      `${reading.label} carries ${pct}% of your reserve, so this gap alone is costing you about ${points(Math.max(1, Math.round(-gap * reading.weight)))} of Vitality. Closing it back to ${reading.target} is worth roughly that much, and no more — which is worth knowing before you spend an evening on it.`,
+      `At ${pct}% of your reserve, this gap is costing about ${points(Math.max(1, Math.round(-gap * reading.weight)))} of Vitality.`,
     );
-  } else {
+  } else if ((reading.id === 'rest' || reading.id === 'mood') && capacity.pressure >= 50) {
+    // The one cross-link the spec is explicit about, and the only place it
+    // still earns a line: a healthy stat with a heavy week ahead of it.
     paragraphs.push(
-      `It carries ${pct}% of your reserve and is currently contributing ${reading.contribution} of its points. Nothing here needs fixing; it needs not being spent.`,
-    );
-  }
-
-  /*
-   * 4. The one cross-link the spec is explicit about: sustained load erodes
-   * recovery. Only said when it is actually true, and only for the two stats it
-   * is true of — a caveat that appears every time is a caveat nobody reads.
-   */
-  if ((reading.id === 'rest' || reading.id === 'mood') && capacity.pressure >= 50) {
-    paragraphs.push(
-      `Worth reading alongside your Pressure, which is at ${capacity.pressure}. Sustained load erodes this sub-stat before any of the others, so while the week stays this heavy it will keep pulling downward on its own — recovering it and lightening the week are the same job.`,
+      `Your Pressure is at ${capacity.pressure} though, and sustained load erodes this one first — worth watching while the week stays heavy.`,
     );
   }
 

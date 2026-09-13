@@ -13,10 +13,12 @@ import {
 
 import { Card, Chip, EmptyState, IconButton, Interactive, Screen, Txt } from '@/components/ui';
 import { formatDayHeading } from '@/data/format';
+import { useApp } from '@/store/AppStore';
 import {
   useCapacity,
   useVital,
   useVitalExplanation,
+  useVitalProjection,
   useVitalSeries,
   useVitals,
 } from '@/store/selectors';
@@ -80,9 +82,16 @@ export default function VitalDetailScreen() {
   const vitalId = id as VitalId;
   const reading = useVital(vitalId);
   const series = useVitalSeries(vitalId);
+  const projected = useVitalProjection(vitalId);
   const explanation = useVitalExplanation(vitalId);
   const all = useVitals();
   const capacity = useCapacity();
+  const { data } = useApp();
+
+  /** Recovery blocks already on the plan for this sub-stat — what bends the line. */
+  const committed = data.tasks.filter(
+    (t) => t.status === 'open' && t.recovery?.vitalId === vitalId,
+  ).length;
 
   const close = useCallback(() => router.back(), [router]);
 
@@ -102,6 +111,22 @@ export default function VitalDetailScreen() {
   const Icon = ICONS[reading.id];
   const tone = TONE[reading.standing];
   const others = all.filter((r) => r.id !== reading.id);
+
+  /*
+   * History and forecast, drawn on one axis.
+   *
+   * Two charts side by side would make the reader compare two pictures to
+   * answer one question. The whole value of the projection is that it continues
+   * a line they can already see, so it shares the axis, the target line and the
+   * scale — and is distinguished by being hollow rather than by being smaller
+   * or elsewhere.
+   */
+  const columns = [
+    ...series.map((p) => ({ ...p, projected: false as boolean })),
+    ...projected.map((p) => ({ ...p, projected: true as boolean })),
+  ];
+
+  const projection = describeProjection(reading, projected, committed);
 
   return (
     <Screen scroll={false}>
@@ -146,11 +171,11 @@ export default function VitalDetailScreen() {
           {reading.note}
         </Txt>
 
-        {/* ── Trend ─────────────────────────────────────────────────────── */}
+        {/* ── Trend, and where it is heading ────────────────────────────── */}
         <Card style={styles.chartCard}>
           <View style={styles.chartHead}>
             <Txt variant="h4" style={{ flex: 1 }}>
-              Last {series.length} days
+              {series.length} days back, 7 forward
             </Txt>
             <View style={styles.legend}>
               <View style={[styles.legendDash, { backgroundColor: scheme.borderStrong }]} />
@@ -160,11 +185,25 @@ export default function VitalDetailScreen() {
             </View>
           </View>
 
+          {/*
+            The projection, said in words above the bars it describes.
+
+            A ghosted half of a chart is easy to mistake for more history, and
+            mistaking a forecast for a record is the worst possible confusion on
+            this particular screen. The sentence states the number and, when the
+            student has already committed to recovery, says that the line bends
+            because of something they chose — which is the only reason this
+            projection is worth drawing rather than merely alarming.
+          */}
+          <Txt variant="bodySm" color={projection.tone === 'good' ? status.success.fg : scheme.textSecondary}>
+            {projection.sentence}
+          </Txt>
+
           <View
             accessibilityRole="image"
-            accessibilityLabel={`${reading.label} over ${series.length} days: ${series
+            accessibilityLabel={`${reading.label} over the last ${series.length} days: ${series
               .map((p) => `${p.isToday ? 'today' : formatDayHeading(p.date)} ${p.value}`)
-              .join(', ')}. The suggested level to stay above is ${reading.target}.`}
+              .join(', ')}. ${projection.sentence} The suggested level to stay above is ${reading.target}.`}
             style={styles.chart}
           >
             {/* The mark, drawn across every column — the line the bars are read against. */}
@@ -179,7 +218,7 @@ export default function VitalDetailScreen() {
               ]}
             />
 
-            {series.map((point) => {
+            {columns.map((point) => {
               const met = point.value >= reading.target;
               return (
                 <View key={point.date} style={styles.column}>
@@ -187,13 +226,26 @@ export default function VitalDetailScreen() {
                     {point.value}
                   </Txt>
                   <View style={[styles.track, { backgroundColor: scheme.surfaceAlt }]}>
+                    {/*
+                      Projected bars are OUTLINED, not merely faded. Opacity
+                      alone reads as "older", which is the one thing these are
+                      not — a hollow bar is the conventional way to say "this
+                      has not happened yet" and survives being looked at quickly
+                      by somebody who is tired.
+                    */}
                     <View
                       style={[
                         styles.bar,
+                        point.projected && styles.barProjected,
                         {
                           height: Math.max(4, (point.value / 100) * CHART_HEIGHT),
-                          backgroundColor: met ? status.success.solid : status[tone].solid,
-                          opacity: point.isToday ? 1 : 0.6,
+                          backgroundColor: point.projected
+                            ? 'transparent'
+                            : met
+                              ? status.success.solid
+                              : status[tone].solid,
+                          borderColor: met ? status.success.solid : status[tone].solid,
+                          opacity: point.isToday ? 1 : point.projected ? 0.85 : 0.6,
                         },
                       ]}
                     />
@@ -280,6 +332,57 @@ export default function VitalDetailScreen() {
 }
 
 /**
+ * The forecast, in one sentence.
+ *
+ * Says the number, names the day, and — this is the part that matters — credits
+ * the student's own committed recovery when the line bends upward. A projection
+ * that only ever warned would be a weather report about someone's wellbeing; the
+ * reason to draw it at all is that accepting a run on Tuesday visibly changes
+ * where Sunday lands, and the sentence has to say so or the chart is just a
+ * nicer way of being told off.
+ */
+function describeProjection(
+  reading: VitalReading,
+  projected: { value: number; date: string }[],
+  committed: number,
+): { sentence: string; tone: 'good' | 'plain' } {
+  if (projected.length === 0) {
+    return { sentence: 'Not enough history yet to project the week ahead.', tone: 'plain' };
+  }
+
+  const end = projected[projected.length - 1];
+  const change = end.value - reading.value;
+  const day = new Date(end.date).toLocaleDateString(undefined, { weekday: 'long' });
+  const helped = committed > 0;
+
+  const plan = helped
+    ? ` That already counts the ${committed} recovery ${committed === 1 ? 'block' : 'blocks'} on your plan.`
+    : '';
+
+  if (Math.abs(change) < 3) {
+    return {
+      sentence: `On the way it is going, this sits around ${end.value} by ${day} — near enough where it is now.${plan}`,
+      tone: helped ? 'good' : 'plain',
+    };
+  }
+
+  if (change > 0) {
+    return {
+      sentence: `On the way it is going, this reaches about ${end.value} by ${day} — up ${change}.${plan}`,
+      tone: 'good',
+    };
+  }
+
+  const crosses = end.value < reading.target && reading.value >= reading.target;
+  return {
+    sentence: crosses
+      ? `If nothing changes, this drops to about ${end.value} by ${day} — under the ${reading.target} it needs to stay above.${plan}`
+      : `If nothing changes, this drifts to about ${end.value} by ${day} — down another ${-change}.${plan}`,
+    tone: 'plain',
+  };
+}
+
+/**
  * A sibling sub-stat.
  *
  * Present so the four are readable against each other — a Rest score of 71
@@ -355,13 +458,16 @@ const styles = StyleSheet.create({
   column: { alignItems: 'center', gap: space[1], flex: 1 },
   value: { fontSize: type.caption.fontSize, lineHeight: type.caption.lineHeight },
   track: {
-    width: 16,
+    // Narrower than it was: the chart now carries fourteen columns rather
+    // than seven, because half of it is the week ahead.
+    width: 9,
     height: CHART_HEIGHT,
     borderRadius: radius.sm,
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
   bar: { width: '100%', borderRadius: radius.sm },
+  barProjected: { borderWidth: 1.5, borderStyle: 'dashed' },
 
   sectionHead: {
     flexDirection: 'row',

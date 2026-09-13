@@ -25,10 +25,9 @@ import { uid } from '@/data/api';
 import { formatBytes } from '@/data/attachments';
 import { recordCheckIn } from '@/data/calibration';
 import { isBlocked } from '@/data/derive';
-import { RECOVERY_CATEGORY, slugify } from '@/data/categories';
+import { slugify } from '@/data/categories';
 import { applyMoves, type Move } from '@/data/rebalance';
-import { recoveryMeta, type RecoverySuggestion } from '@/data/recovery';
-import { DAY_END_HOUR } from '@/data/schedule';
+import { buildRecoveryTask, type RecoverySuggestion } from '@/data/recovery';
 import { isoDate } from '@/data/format';
 import type {
   AppData,
@@ -729,44 +728,6 @@ function materialise(p: ProposedTask, resources: Resource[]): Task {
   };
 }
 
-/**
- * A recovery suggestion, as a schedulable task.
- *
- * Due TODAY, and deliberately so. Recovery with no date is recovery that
- * happens after everything else, which means never — the whole reason these are
- * tasks rather than advice is that a block on today's rail is the only version
- * of "go for a walk" that survives a heavy week. It lands at the end of the
- * planning window so it does not shoulder real deadlines out of the way; the
- * scheduler places it in whatever gap is left.
- *
- * No sub-tasks. Breaking "take a nap" into steps would be the app failing to
- * understand its own suggestion.
- */
-function recoveryTask(suggestion: RecoverySuggestion): Task {
-  const now = new Date();
-  const due = new Date(now);
-  due.setHours(DAY_END_HOUR, 0, 0, 0);
-
-  return {
-    id: uid('t'),
-    title: suggestion.action.title,
-    status: 'open',
-    categoryId: RECOVERY_CATEGORY,
-    dueAt: due.toISOString(),
-    estimateMin: suggestion.action.minutes,
-    // Always low. A recovery block is not a heavy commitment, and rendering it
-    // beside the midterm at the same weight would make resting look like work.
-    load: 'low',
-    icon: 'Heart',
-    createdAt: now.toISOString(),
-    completedAt: null,
-    subtasks: [],
-    resources: [],
-    pipNote: suggestion.action.blurb,
-    recovery: recoveryMeta(suggestion),
-  };
-}
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -828,7 +789,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'rebalance/apply', moves, at: new Date().toISOString() }),
 
       addRecovery: (suggestion) => {
-        const task = recoveryTask(suggestion);
+        const task = buildRecoveryTask(suggestion, uid('t'));
         dispatch({ type: 'recovery/add', task });
         return task;
       },

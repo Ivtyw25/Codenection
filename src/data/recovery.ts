@@ -42,7 +42,9 @@
  * caught lying — it is already asking a depleted person to believe that resting
  * counts as progress.
  */
-import type { RecoveryMeta, VitalId, VitalReading } from '@/types';
+import type { RecoveryMeta, Task, VitalId, VitalReading } from '@/types';
+import { RECOVERY_CATEGORY } from './categories';
+import { DAY_END_HOUR } from './schedule';
 
 /** Icons the recovery rows may render. Keeps the catalogue free of lucide. */
 export type RecoveryIcon =
@@ -58,7 +60,16 @@ export interface RecoveryAction {
   id: string;
   vitalId: VitalId;
   title: string;
-  /** Why this one helps this sub-stat. Cites the mechanism, not a platitude. */
+  /**
+   * Why this one, in a line.
+   *
+   * Deliberately short. These used to be two-sentence arguments for each
+   * activity — true, well-made, and terrible in a list of four, because by the
+   * third paragraph the student is reading an essay about rest instead of
+   * choosing to rest. The row already shows which sub-stat it lifts, by how
+   * much, how long it takes and when it would happen; this only has to supply
+   * the one clause those cannot.
+   */
   blurb: string;
   /** Minutes it takes. Becomes the task's estimate and its block on the rail. */
   minutes: number;
@@ -88,8 +99,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_nap',
     vitalId: 'rest',
     title: 'A nap, without the guilt',
-    blurb:
-      'Twenty minutes is short enough to wake up clear rather than groggy, and it is the fastest thing on this list. You are not behind for taking it.',
+    blurb: 'Short enough to wake up clear rather than groggy.',
     minutes: 20,
     lift: 8,
     icon: 'Moon',
@@ -99,8 +109,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_winddown',
     vitalId: 'rest',
     title: 'Close the day an hour early',
-    blurb:
-      'Your plan can run to 10pm. Finishing the last block before nine turns a hard stop into a wind-down, which is most of what a good night actually is.',
+    blurb: 'Turns a hard stop into a wind-down.',
     minutes: 60,
     lift: 7,
     icon: 'Sun',
@@ -111,8 +120,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_run',
     vitalId: 'physical',
     title: 'Go for a run',
-    blurb:
-      'The sub-stat that moves fastest when you use your body and slowest when you argue with yourself about it. Thirty minutes at any pace counts.',
+    blurb: 'Any pace counts. This one moves when you use your body.',
     minutes: 30,
     lift: 10,
     icon: 'Footprints',
@@ -121,8 +129,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_walk',
     vitalId: 'physical',
     title: 'A solo walk through town',
-    blurb:
-      'No destination, no podcast queue to finish. It moves your body and unhooks your attention at the same time, which is why it shows up on two sub-stats at once.',
+    blurb: 'No destination. Moves you and unhooks your attention at once.',
     minutes: 40,
     lift: 8,
     icon: 'Wind',
@@ -133,8 +140,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_meditate',
     vitalId: 'mood',
     title: 'Ten minutes of sitting still',
-    blurb:
-      'Not to empty your head — just to stop adding to it for ten minutes. The shortest thing here, and the one most worth doing on the day you are certain you have no time for it.',
+    blurb: 'Not to empty your head — just to stop adding to it.',
     minutes: 10,
     lift: 7,
     icon: 'Coffee',
@@ -144,8 +150,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_read',
     vitalId: 'mood',
     title: 'Read something that is not for a module',
-    blurb:
-      'Thirty minutes of reading nobody is going to test you on. It is the cheapest way to stop your attention from belonging to your deadlines.',
+    blurb: 'Reading nobody is going to test you on.',
     minutes: 30,
     lift: 8,
     icon: 'BookOpen',
@@ -157,8 +162,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_message',
     vitalId: 'social',
     title: 'Message one person properly',
-    blurb:
-      'This is the sub-stat that decays without anything going wrong, which is also why a single real conversation moves it more than any other stat responds to anything.',
+    blurb: 'One real conversation moves this more than anything else.',
     minutes: 15,
     lift: 10,
     icon: 'MessageCircle',
@@ -167,8 +171,7 @@ export const RECOVERY_CATALOGUE: RecoveryAction[] = [
     id: 'rec_meal',
     vitalId: 'social',
     title: 'Eat one meal with someone',
-    blurb:
-      'You were going to eat anyway. A scheduled hour with another person is the only version of this that reliably survives a heavy week.',
+    blurb: 'You were going to eat anyway.',
     minutes: 60,
     lift: 12,
     icon: 'Coffee',
@@ -195,6 +198,52 @@ export function recoveryMeta(suggestion: RecoverySuggestion): RecoveryMeta {
     lift: suggestion.lift,
     timerSec: suggestion.action.timerSec,
     actionId: suggestion.action.id,
+  };
+}
+
+/**
+ * A recovery suggestion, as a schedulable task.
+ *
+ * Lives here rather than in the store because the suggestion list needs to
+ * build one BEFORE it is committed — the row promises a time ("today, 4:40pm"),
+ * and the only honest way to produce that time is to run the real scheduler
+ * over the task that would actually be created. A second, approximate copy of
+ * this shape in the UI would drift from the committed one, and the row would be
+ * quoting a slot the task never lands in.
+ *
+ * Due TODAY, and deliberately so. Recovery with no date is recovery that
+ * happens after everything else, which means never. It lands at the end of the
+ * planning window so it does not shoulder real deadlines out of the way; the
+ * scheduler fits it into whatever gap is left.
+ *
+ * No sub-tasks. Breaking "take a nap" into steps would be the app failing to
+ * understand its own suggestion.
+ */
+export function buildRecoveryTask(
+  suggestion: RecoverySuggestion,
+  id: string,
+  now: Date = new Date(),
+): Task {
+  const due = new Date(now);
+  due.setHours(DAY_END_HOUR, 0, 0, 0);
+
+  return {
+    id,
+    title: suggestion.action.title,
+    status: 'open',
+    categoryId: RECOVERY_CATEGORY,
+    dueAt: due.toISOString(),
+    estimateMin: suggestion.action.minutes,
+    // Always low. A recovery block is not a heavy commitment, and rendering it
+    // beside the midterm at the same weight would make resting look like work.
+    load: 'low',
+    icon: 'Heart',
+    createdAt: now.toISOString(),
+    completedAt: null,
+    subtasks: [],
+    resources: [],
+    pipNote: suggestion.action.blurb,
+    recovery: recoveryMeta(suggestion),
   };
 }
 

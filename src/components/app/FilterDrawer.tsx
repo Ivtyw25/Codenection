@@ -17,6 +17,8 @@ const RANGES: { value: RangeFilter; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'tomorrow', label: 'Tomorrow' },
   { value: 'week', label: 'This week' },
+  // Anchored to the clock, not to the browsed day — see `inRange`.
+  { value: 'overdue', label: 'Overdue' },
   { value: 'all', label: 'Everything' },
 ];
 

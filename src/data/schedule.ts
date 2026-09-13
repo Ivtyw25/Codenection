@@ -16,7 +16,7 @@
  * can recover.
  */
 import type { ProposedTask, SubTask, SubTaskId, Task, TaskId, TeammateId } from '@/types';
-import { dayOffset, isoDate, startOfDay } from './format';
+import { dayOffset, isOverdue, isoDate, startOfDay } from './format';
 
 // ── The shape of a day ──────────────────────────────────────────────────────
 
@@ -159,6 +159,25 @@ export function buildSchedule(tasks: Task[], now: Date = new Date()): Schedule {
   const endOf = new Map<string, number>();
 
   for (const task of tasks) {
+    /*
+     * Overdue work is NOT planned.
+     *
+     * It used to be: the scheduler started at `now` and cheerfully laid a
+     * missed deadline's steps across this afternoon, wearing a small red "past
+     * deadline" chip. That quietly made a broken promise look like a plan —
+     * today's rail would open with three blocks that were already failures,
+     * and the student would tick them in the order the app invented rather
+     * than decide what to do about them.
+     *
+     * A missed deadline is a decision, not a block of time. It belongs to the
+     * Rebalancer (which now guarantees a row for every one of them) and to the
+     * task's own detail screen, where the date can be changed. Once it HAS a
+     * real date it is ordinary work again and lands on the rail like anything
+     * else — which is the whole point of making reassignment the thing that
+     * ends the state.
+     */
+    if (task.status === 'open' && isOverdue(task.dueAt, now)) continue;
+
     const due = task.dueAt ? new Date(task.dueAt).getTime() : Infinity;
 
     // A task with no steps is still a thing that takes time, and Today's rail

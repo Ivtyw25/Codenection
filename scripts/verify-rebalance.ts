@@ -200,9 +200,27 @@ if (clubMoves.length >= 2) {
 
 // ── 5. Nothing safe to move ─────────────────────────────────────────────────
 console.log('\n[5] A week with nothing safe to move');
+/*
+ * Deliberately contains NO overdue work.
+ *
+ * This scenario exists to prove the engine will say "there is nothing I can
+ * safely move" rather than inventing a move to look useful. Overdue work is now
+ * handled by a separate, guaranteed pass — so leaving a late task in here would
+ * stop testing that property and start testing the rescue, which scenario 6
+ * covers on its own terms.
+ */
+/*
+ * Both due TOMORROW, not today.
+ *
+ * `isOverdue` compares instants rather than days, so "today at 9am" is already
+ * late by the time anyone runs this — which is what made the first attempt at
+ * de-overdue-ing this fixture silently keep testing the rescue pass. Tomorrow
+ * is unambiguously ahead of the clock whenever the suite runs, and two 5-hour
+ * high-load academic tasks one day out still clear the trigger threshold.
+ */
 const immovable = [
-  task({ id: 'x1', title: 'Finals paper', categoryId: 'academics', dueAt: at(-1, 9), estimateMin: 300, load: 'high', icon: 'FileText' }),
-  task({ id: 'x2', title: 'Thesis defence prep', categoryId: 'academics', dueAt: at(0, 9), estimateMin: 300, load: 'high', icon: 'FileText' }),
+  task({ id: 'x1', title: 'Finals paper', categoryId: 'academics', dueAt: at(1, 9), estimateMin: 300, load: 'high', icon: 'FileText' }),
+  task({ id: 'x2', title: 'Thesis defence prep', categoryId: 'academics', dueAt: at(1, 23), estimateMin: 300, load: 'high', icon: 'FileText' }),
 ];
 const stuck = planRebalance(immovable, [], DEFAULT_CATEGORIES, now);
 console.log(`      before=${stuck.before} moves=${stuck.moves.length}`);
@@ -210,6 +228,68 @@ console.log(`      note: ${stuck.note}`);
 check('triggers', stuck.triggered === true);
 check('proposes nothing rather than something unsafe', stuck.moves.length === 0);
 check('says so honestly', /rest, not rearrangement/.test(stuck.note));
+
+// ── 6. The overdue guarantee ────────────────────────────────────────────────
+/*
+ * Overdue work no longer appears on Today's Focus and the scheduler refuses to
+ * plan it, which makes this pass load-bearing rather than tidy: if the engine
+ * ever stopped proposing something for a late task, that task would have no
+ * surface in the app at all beyond a filter tab.
+ */
+console.log('\n[6] Every overdue task gets an answer');
+const late = [
+  task({ id: 'o1', title: 'Networks lab report', categoryId: 'academics', dueAt: at(-3, 9), estimateMin: 120, load: 'medium', icon: 'FileText' }),
+  task({ id: 'o2', title: 'Return the library books', categoryId: 'errands', dueAt: at(-1, 17), estimateMin: 20, load: 'low', icon: 'ShoppingCart' }),
+  // Out of road: moved twice already and late again.
+  { ...task({ id: 'o3', title: 'Club poster', categoryId: 'club', dueAt: at(-2, 12), estimateMin: 45, load: 'low', icon: 'Users' }), postponeCount: 2 },
+];
+const rescued = planRebalance(late, [], DEFAULT_CATEGORIES, now);
+const overdueMoves = rescued.moves.filter((m) => m.overdue);
+console.log(`      before=${rescued.before} overdue-moves=${overdueMoves.length}`);
+console.log(`      note: ${rescued.note}`);
+
+check(
+  'one row per overdue task, no matter what the pressure arithmetic says',
+  overdueMoves.length === 3,
+  `got ${overdueMoves.length}`,
+);
+check(
+  'every rescue carries the date it is moving from',
+  overdueMoves.every((m) => m.fromDueAt != null),
+);
+check(
+  'a re-date lands in the future',
+  overdueMoves
+    .filter((m) => m.lever === 'postpone')
+    .every((m) => new Date(m.newDueAt!).getTime() > now.getTime()),
+);
+check(
+  'a task out of postpones is offered the truth, not a fourth date',
+  overdueMoves.find((m) => m.taskId === 'o3')?.lever === 'drop',
+  `o3 → ${overdueMoves.find((m) => m.taskId === 'o3')?.lever}`,
+);
+check(
+  'no task receives two contradictory proposals',
+  new Set(rescued.moves.map((m) => m.taskId)).size === rescued.moves.length,
+);
+check('the note leads with the late work', /overdue/.test(rescued.note));
+
+/*
+ * The guarantee holds even on a calm list.
+ *
+ * A single late errand on an otherwise empty week is below every threshold the
+ * engine has — and is exactly the case where a student most needs to be asked,
+ * because nothing else in the app is going to raise it.
+ */
+const calmButLate = [
+  task({ id: 'q1', title: 'Return the library books', categoryId: 'errands', dueAt: at(-1, 17), estimateMin: 20, load: 'low', icon: 'ShoppingCart' }),
+];
+const latePlan = planRebalance(calmButLate, [], DEFAULT_CATEGORIES, now);
+check(
+  'a quiet list with one late thing still gets a proposal',
+  latePlan.moves.filter((m) => m.overdue).length === 1,
+  `pressure=${latePlan.before}, moves=${latePlan.moves.length}`,
+);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}\n`);
 process.exit(failures === 0 ? 0 : 1);

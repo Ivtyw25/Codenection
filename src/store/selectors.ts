@@ -19,15 +19,21 @@ import {
   forecastAhead,
   nextAction,
   progress,
+  projectVital,
   queryTasks,
   readVitals,
   vitalSeries,
 } from '@/data/derive';
-import { calibrationNote, checkInOn } from '@/data/calibration';
+import { calibrationNote, checkInOn, checkInOpen } from '@/data/calibration';
 import { activeCategories, findCategory } from '@/data/categories';
 import { explainVital, type VitalExplanation } from '@/data/explain';
 import { planRebalance, type RebalancePlan } from '@/data/rebalance';
-import { suggestRecovery, takenActions, type RecoverySuggestion } from '@/data/recovery';
+import {
+  buildRecoveryTask,
+  suggestRecovery,
+  takenActions,
+  type RecoverySuggestion,
+} from '@/data/recovery';
 import {
   buildSchedule,
   plannedMinutes,
@@ -103,6 +109,22 @@ export function useVitalSeries(id: VitalId | undefined) {
   return useMemo(
     () => (id ? vitalSeries(id, data.vitals, data.history) : []),
     [id, data.vitals, data.history],
+  );
+}
+
+/**
+ * Where that sub-stat is heading over the next week.
+ *
+ * Reacts to the recovery blocks already on the plan, which is the point: the
+ * line the student sees bends the moment they accept a run on Tuesday.
+ */
+export function useVitalProjection(id: VitalId | undefined) {
+  const { data } = useApp();
+  const series = useVitalSeries(id);
+  const now = useNow();
+  return useMemo(
+    () => (id ? projectVital(id, series, data.tasks, 7, now) : []),
+    [id, series, data.tasks, now],
   );
 }
 
@@ -187,13 +209,41 @@ export function useRebalancePlan(force = false): RebalancePlan {
  * already committed as open tasks are excluded — re-proposing the run somebody
  * accepted this morning is how a helpful list becomes wallpaper.
  */
-export function useRecoverySuggestions(): RecoverySuggestion[] {
+export function useRecoverySuggestions(): PlannedRecovery[] {
   const { data } = useApp();
   const readings = useVitals();
-  return useMemo(
-    () => suggestRecovery(readings, takenActions(data.tasks)),
-    [readings, data.tasks],
-  );
+  const now = useNow();
+
+  return useMemo(() => {
+    const suggestions = suggestRecovery(readings, takenActions(data.tasks));
+
+    /*
+     * Each one priced for TIME, the way moves are priced for pressure.
+     *
+     * The row promises a slot — "today, 4:40pm" — and the only honest way to
+     * produce that is to run the real scheduler over the task that would
+     * actually be created. Guessing "sometime this evening" in the UI would be
+     * a second, softer copy of the planner that drifts from it the moment the
+     * day fills up.
+     *
+     * Scheduled ONE AT A TIME, each against the committed list rather than
+     * against each other. Four hypothetical blocks competing for the same
+     * afternoon would push the later ones into tomorrow, and the student is
+     * only ever going to accept one or two — so each row answers "if you add
+     * THIS, when does it happen?", which is the question being asked.
+     */
+    return suggestions.map((suggestion) => {
+      const candidate = buildRecoveryTask(suggestion, `rec_preview_${suggestion.action.id}`, now);
+      const schedule = buildSchedule([...data.tasks, candidate], now);
+      return { ...suggestion, plannedAt: schedule.get(candidate.id)?.startAt ?? null };
+    });
+  }, [readings, data.tasks, now]);
+}
+
+/** A suggestion plus the slot the real scheduler would give it. */
+export interface PlannedRecovery extends RecoverySuggestion {
+  /** ISO-8601, or null if the day genuinely has no room left for it. */
+  plannedAt: string | null;
 }
 
 // ── Calibration ─────────────────────────────────────────────────────────────
@@ -207,6 +257,8 @@ export function useRecoverySuggestions(): RecoverySuggestion[] {
 export function useCheckIn(): {
   today: CheckIn | null;
   answered: boolean;
+  /** Whether the day has run far enough for the question to mean anything. */
+  open: boolean;
   note: string | null;
   bias: number;
   count: number;
@@ -219,6 +271,7 @@ export function useCheckIn(): {
     return {
       today,
       answered: today != null,
+      open: checkInOpen(now),
       note: calibrationNote(data.calibration),
       bias: data.calibration?.vitalityBias ?? 0,
       count: data.calibration?.entries.length ?? 0,

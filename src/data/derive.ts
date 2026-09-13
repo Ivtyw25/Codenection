@@ -26,7 +26,7 @@ import type {
   VitalStanding,
   VitalityModel,
 } from '@/types';
-import { dayOffset, formatEstimate, isOverdue, isToday, startOfDay } from './format';
+import { dayOffset, formatEstimate, isOverdue, isToday, isoDate, startOfDay } from './format';
 import { DAY_END_HOUR, DAY_START_HOUR } from './schedule';
 
 // ── Pressure ────────────────────────────────────────────────────────────────
@@ -317,6 +317,84 @@ export function vitalSeries(
     : past;
 }
 
+/**
+ * Where this sub-stat is heading over the next week.
+ *
+ * ── What it actually models ────────────────────────────────────────────────
+ *
+ * Two things, and nothing else:
+ *
+ *   THE TREND IT IS ALREADY ON, damped. The recent daily slope is carried
+ *   forward with each day counting a little less than the last, because trends
+ *   flatten — a stat that fell four points a day all week does not fall
+ *   twenty-eight more. Undamped extrapolation would have Social Connection at
+ *   zero by Friday, which is not a forecast, it is a scare.
+ *
+ *   WHAT THE STUDENT HAS ALREADY COMMITTED TO. Every open recovery block
+ *   aimed at this sub-stat lands on the day it is due and lifts the line by
+ *   exactly what it promised. This is the whole reason the projection is worth
+ *   drawing: it is the one place the app can show that accepting the run on
+ *   Tuesday visibly changes where Sunday lands.
+ *
+ * ── What it deliberately does not do ───────────────────────────────────────
+ *
+ * It does not drift toward the target. A model that quietly assumed things get
+ * better would draw a recovering line for somebody whose week is not
+ * recovering, which is the single most damaging thing a wellbeing forecast can
+ * do — it would tell a student in trouble to wait it out.
+ */
+export function projectVital(
+  id: VitalId,
+  series: { value: number; isToday: boolean }[],
+  tasks: Task[],
+  days = 7,
+  now: Date = new Date(),
+): { date: string; value: number; isToday: boolean; projected: true }[] {
+  if (series.length === 0) return [];
+
+  const current = series[series.length - 1].value;
+
+  /*
+   * Slope over the recent past, not the whole history.
+   *
+   * Four days is long enough to be a trend and short enough to still be about
+   * this week. Averaging over everything stored would let a good fortnight ago
+   * cancel out a bad three days, which is precisely the signal somebody opens
+   * this screen to see.
+   */
+  const window = series.slice(-5);
+  const slope =
+    window.length >= 2
+      ? (window[window.length - 1].value - window[0].value) / (window.length - 1)
+      : 0;
+
+  /** Each further day's slope counts less than the last. */
+  const DAMPING = 0.75;
+
+  // Recovery already agreed to, by the ISO date it is due on.
+  const credit = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.status !== 'open' || !task.recovery || task.recovery.vitalId !== id) continue;
+    if (!task.dueAt) continue;
+    const key = isoDate(task.dueAt);
+    credit.set(key, (credit.get(key) ?? 0) + task.recovery.lift);
+  }
+
+  const out: { date: string; value: number; isToday: boolean; projected: true }[] = [];
+  let value = current;
+  let step = slope;
+
+  for (let d = 1; d <= days; d++) {
+    const day = startOfDay(now);
+    day.setDate(day.getDate() + d);
+    value = clamp(value + step + (credit.get(isoDate(day)) ?? 0));
+    step *= DAMPING;
+    out.push({ date: day.toISOString(), value, isToday: false, projected: true });
+  }
+
+  return out;
+}
+
 function pressureNote(tasks: Task[], pressure: number, now: Date): string {
   const open = openTasks(tasks);
   const overdue = open.filter((t) => isOverdue(t.dueAt, now));
@@ -518,17 +596,41 @@ export function deriveStreak(history: DayRecord[], todayState: PipStateName): nu
 
 const LOAD_ORDER = { high: 0, medium: 1, low: 2 } as const;
 
-function inRange(task: Task, query: TaskQuery): boolean {
+function inRange(task: Task, query: TaskQuery, now: Date): boolean {
   if (query.range === 'all') return true;
+
+  /*
+   * Overdue is measured against the CLOCK, not against the day being browsed.
+   *
+   * Every other range answers "what belongs to this day?" and moves as the
+   * student pages back and forth through the strip. This one answers "what am I
+   * behind on?", which has exactly one true answer regardless of which day they
+   * happen to be looking at — paging to last Tuesday must not change what
+   * counts as late.
+   */
+  if (query.range === 'overdue') {
+    return task.status === 'open' && isOverdue(task.dueAt, now);
+  }
+
   const anchor = startOfDay(query.anchor);
   // Undated work belongs to no day. It surfaces under "Everything", which is
   // handled above — putting it on today's list instead would quietly make the
   // Manifest a backlog.
   if (!task.dueAt) return false;
   const off = dayOffset(task.dueAt, anchor);
-  if (query.range === 'today') return off <= 0; // overdue surfaces on today
+  /*
+   * Today no longer swallows the backlog.
+   *
+   * This used to be `off <= 0` — "overdue surfaces on today" — which was the
+   * right call when the rest of the app also folded late work into today. It no
+   * longer does: the scheduler refuses to plan overdue work and Today's Focus
+   * does not show it, so leaving it in this list would make the Manifest the
+   * one place still quietly mixing "due today" with "already missed". They are
+   * different problems and now have different tabs.
+   */
+  if (query.range === 'today') return off === 0;
   if (query.range === 'tomorrow') return off === 1;
-  return off <= 6; // this week
+  return off >= 0 && off <= 6; // this week
 }
 
 /** The one place a task list is filtered and ordered. Every list uses it. */
@@ -536,7 +638,7 @@ export function queryTasks(tasks: Task[], query: TaskQuery, now: Date = new Date
   const filtered = tasks.filter((task) => {
     if (query.hideDone && task.status === 'done') return false;
     if (query.categoryId !== 'all' && task.categoryId !== query.categoryId) return false;
-    return inRange(task, query);
+    return inRange(task, query, now);
   });
 
   return filtered.sort((a, b) => {
@@ -552,11 +654,15 @@ export function queryTasks(tasks: Task[], query: TaskQuery, now: Date = new Date
 }
 
 /** Counts for the category filter row's badges. Reflects the active range. */
-export function categoryCounts(tasks: Task[], query: TaskQuery): Record<string, number> {
+export function categoryCounts(
+  tasks: Task[],
+  query: TaskQuery,
+  now: Date = new Date(),
+): Record<string, number> {
   const counts: Record<string, number> = { all: 0 };
   for (const task of tasks) {
     if (task.status === 'done' && query.hideDone) continue;
-    if (!inRange(task, query)) continue;
+    if (!inRange(task, query, now)) continue;
     counts.all += 1;
     counts[task.categoryId] = (counts[task.categoryId] ?? 0) + 1;
   }

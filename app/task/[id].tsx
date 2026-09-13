@@ -3,7 +3,9 @@ import { Image, Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
+  AlarmClock,
   ArrowLeft,
+  CalendarClock,
   CalendarDays,
   Check,
   Clock,
@@ -14,12 +16,13 @@ import {
   Leaf,
   Music,
   Plus,
+  Timer,
   Trash2,
   Video,
   X,
 } from 'lucide-react-native';
 
-import { TaskIcon, Timeline } from '@/components/app';
+import { ReassignSheet, TaskIcon, Timeline } from '@/components/app';
 import {
   Button,
   Chip,
@@ -39,7 +42,21 @@ import { planSpan } from '@/data/schedule';
 import { useApp } from '@/store/AppStore';
 import { useCategory, useNow, useTask, useTaskTimeline } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
-import type { Resource } from '@/types';
+import type { Resource, VitalId } from '@/types';
+
+/**
+ * Sub-stat names, for the recovery banner's payout line.
+ *
+ * Spelled out rather than read off `data.vitals`, because the banner is naming
+ * the promise the task was created under and that promise does not change if
+ * the reading behind it does.
+ */
+const VITAL_LABEL: Record<VitalId, string> = {
+  rest: 'Rest & Sleep',
+  mood: 'Mood & Stress',
+  physical: 'Physical Vitality',
+  social: 'Social Connection',
+};
 
 /**
  * Task Detail — SCR-13. A full page, pushed from the Manifest.
@@ -68,6 +85,7 @@ export default function TaskDetailScreen() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reassigning, setReassigning] = useState(false);
 
   const close = useCallback(() => router.back(), [router]);
 
@@ -246,6 +264,77 @@ export default function TaskDetailScreen() {
             />
           ) : null}
         </View>
+
+        {/*
+          ── Overdue: the place it actually gets resolved ─────────────────
+
+          Overdue work no longer appears in Today's Focus. The scheduler stopped
+          laying a missed deadline's steps across this afternoon, because doing
+          so dressed a broken promise up as a plan — the rail opened with blocks
+          that were already failures and the student ticked them in whatever
+          order the app had invented.
+
+          So a late task now has exactly two places it can be answered: the
+          Rebalancer, which guarantees a proposal for every one of them, and
+          here — the screen somebody lands on when they finally tap the thing
+          they have been avoiding. Giving it a date is what puts it back on the
+          plan, and this banner is the one control that does it.
+        */}
+        {overdue ? (
+          <View style={[styles.overdueBanner, { backgroundColor: status.danger.bg }]}>
+            <View style={styles.overdueHead}>
+              <AlarmClock size={15} color={status.danger.fg} />
+              <Txt variant="label" color={status.danger.fg} style={{ flex: 1 }}>
+                Past its date — and off your plan until it has a new one
+              </Txt>
+            </View>
+            <Txt variant="caption" color={status.danger.fg}>
+              Pip will not schedule work behind its own deadline, and it will not move the date for
+              you. Finish it, or say when it is really happening.
+            </Txt>
+            <Button
+              label="Give it a new date"
+              variant="secondary"
+              size="sm"
+              icon={<CalendarClock size={14} color={scheme.primary} />}
+              onPress={() => setReassigning(true)}
+            />
+          </View>
+        ) : null}
+
+        {/*
+          ── A recovery block's own control ───────────────────────────────
+
+          A timed recovery task is not something you tick when you remember to;
+          the passing of the time IS the task. Opening it from the Rebalancer
+          starts the timer immediately, but somebody who accepted a nap this
+          morning and came back to it this evening arrives HERE — and finding
+          only a checkbox would mean the one thing the task is made of has no
+          control anywhere on its own screen.
+        */}
+        {task.recovery ? (
+          <View style={[styles.recoveryBanner, { backgroundColor: status.success.bg }]}>
+            <View style={styles.overdueHead}>
+              <Leaf size={15} color={status.success.fg} />
+              <Txt variant="label" color={status.success.fg} style={{ flex: 1 }}>
+                Recovery · +{task.recovery.lift} to {VITAL_LABEL[task.recovery.vitalId]} when done
+              </Txt>
+            </View>
+            <Txt variant="caption" color={status.success.fg}>
+              Takes {formatEstimate(task.estimateMin)} of your day and adds nothing to your
+              pressure. Finishing it is what pays out.
+            </Txt>
+            {task.recovery.timerSec && !complete ? (
+              <Button
+                label={`Start the ${Math.round(task.recovery.timerSec / 60)}-minute timer`}
+                variant="primary"
+                size="sm"
+                icon={<Timer size={14} color={scheme.onPrimary} />}
+                onPress={() => router.push({ pathname: '/timer/[id]', params: { id: task.id } })}
+              />
+            ) : null}
+          </View>
+        ) : null}
 
         {/* ── Progress ──────────────────────────────────────────────────── */}
         {total > 0 ? (
@@ -427,6 +516,34 @@ export default function TaskDetailScreen() {
         ) : null}
       </ScrollView>
 
+      <ReassignSheet
+        task={reassigning ? task : null}
+        now={now}
+        onClose={() => setReassigning(false)}
+        onPick={(to) => {
+          const previous = task.dueAt;
+          patchTask(task.id, {
+            dueAt: to.toISOString(),
+            // Counted like any other deferral. A task that keeps being re-dated
+            // is one that is not going to happen, and the Rebalancer reads this
+            // to stop offering it a fourth date.
+            postponedFrom: previous,
+            postponeCount: (task.postponeCount ?? 0) + 1,
+          });
+          setReassigning(false);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          toast(`Now due ${formatDue(to.toISOString(), now)} · back on your plan`, 'success', {
+            label: 'Undo',
+            run: () =>
+              patchTask(task.id, {
+                dueAt: previous,
+                postponedFrom: task.postponedFrom ?? null,
+                postponeCount: task.postponeCount ?? 0,
+              }),
+          });
+        }}
+      />
+
       <ConfirmDialog
         visible={confirmDelete}
         title="Delete this task?"
@@ -581,6 +698,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   resourceThumb: { width: '100%', height: '100%' },
+
+  overdueBanner: { gap: space[2], padding: space[3], borderRadius: radius.md, marginTop: space[4] },
+  recoveryBanner: { gap: space[2], padding: space[3], borderRadius: radius.md, marginTop: space[4] },
+  overdueHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
 
   pipNote: {
     marginTop: space[6],

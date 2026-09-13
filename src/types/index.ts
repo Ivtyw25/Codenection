@@ -265,7 +265,18 @@ export interface Task {
 
 /** What the Manifest filters by. `all` is the unfiltered pseudo-category. */
 export type CategoryFilter = CategoryId | 'all';
-export type RangeFilter = 'today' | 'tomorrow' | 'week' | 'all';
+/**
+ * `overdue` is a range in the same sense the others are — a rule for which
+ * tasks belong in the list — but it is the only one anchored to the clock
+ * rather than to the day being browsed.
+ *
+ * It earns a place in this row because overdue work no longer appears anywhere
+ * else in the app's day-to-day surfaces: the scheduler refuses to plan it and
+ * Today's Focus no longer shows it, since a missed deadline is a decision
+ * rather than a block of time. Without a filter here, the only way to see
+ * everything you are behind on would be to run a rebalance.
+ */
+export type RangeFilter = 'today' | 'tomorrow' | 'week' | 'all' | 'overdue';
 export type SortKey = 'due' | 'load' | 'created';
 
 export interface TaskQuery {
