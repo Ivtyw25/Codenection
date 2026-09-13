@@ -9,9 +9,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Mic, Square } from 'lucide-react-native';
 
-import { Button, Interactive, Spinner, Txt } from '@/components/ui';
+import { Button, Interactive, Txt } from '@/components/ui';
 import { transcribe } from '@/data/api';
 import { radius, space, status, useMotion, useScheme } from '@/theme';
+import { PipRecorder } from './PipRecorder';
 
 /** Bars in the level meter. Odd, so there is a centre to fall away from. */
 const BARS = 15;
@@ -72,6 +73,13 @@ export function VoiceRecorder({ onTranscript }: VoiceRecorderProps) {
 
   return (
     <View style={styles.root}>
+      {/*
+        Pip leads every phase. It is the one element that does not move between
+        states, which is what lets the states themselves read as changes in the
+        mascot rather than as four unrelated screens.
+      */}
+      <PipRecorder phase={phase} />
+
       {phase === 'recording' ? (
         <>
           <LevelMeter />
@@ -93,8 +101,9 @@ export function VoiceRecorder({ onTranscript }: VoiceRecorderProps) {
         </>
       ) : phase === 'transcribing' ? (
         <>
-          <Spinner size={32} />
-          <Txt variant="h3" center style={{ marginTop: space[4] }}>
+          {/* Pip's bob is the progress indicator — a spinner beside it would
+              be two things saying the same thing. */}
+          <Txt variant="h3" center style={{ marginTop: space[2] }}>
             Making that out…
           </Txt>
           <Txt variant="caption" muted center style={styles.hint}>
@@ -103,10 +112,7 @@ export function VoiceRecorder({ onTranscript }: VoiceRecorderProps) {
         </>
       ) : phase === 'error' ? (
         <>
-          <View style={[styles.errorBadge, { backgroundColor: status.danger.bg }]}>
-            <Mic size={26} color={status.danger.solid} />
-          </View>
-          <Txt variant="h3" center>
+          <Txt variant="h3" center style={{ marginTop: space[2] }}>
             That didn&apos;t come through
           </Txt>
           <Txt variant="bodySm" muted center style={{ marginTop: space[2] }}>
@@ -127,7 +133,7 @@ export function VoiceRecorder({ onTranscript }: VoiceRecorderProps) {
           >
             <Mic size={30} color={scheme.onSecondary} />
           </Interactive>
-          <Txt variant="h4" center style={{ marginTop: space[5] }}>
+          <Txt variant="h4" center style={{ marginTop: space[4] }}>
             Tap to start
           </Txt>
           <Txt variant="caption" muted center style={styles.hint}>
@@ -220,7 +226,7 @@ const styles = StyleSheet.create({
     marginBottom: space[5],
   },
   bar: { width: 4, borderRadius: radius.pill },
-  timer: { fontVariant: ['tabular-nums'], marginBottom: space[6] },
+  timer: { fontVariant: ['tabular-nums'], marginBottom: space[4] },
   button: {
     width: 84,
     height: 84,
@@ -228,14 +234,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  errorBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space[4],
   },
   hint: { marginTop: space[3], maxWidth: 280 },
 });

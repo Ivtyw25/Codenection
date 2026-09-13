@@ -49,8 +49,17 @@ export default function CaptureScreen() {
   const scheme = useScheme();
   const insets = useSafeAreaInsets();
 
-  const params = useLocalSearchParams<{ draft?: string; from?: string }>();
+  const params = useLocalSearchParams<{ draft?: string; from?: string; launch?: string }>();
   const { data, capture, discardCaptures, toast } = useApp();
+
+  /**
+   * True when this is the screen the app opened on, rather than one pushed
+   * from the tab bar. Capture is the launch destination precisely so the first
+   * thing anyone meets is somewhere to put a thought down — Home's timeline,
+   * vitals and week stats are a lot to parse before you have even said what is
+   * on your mind.
+   */
+  const launched = params.launch === '1';
 
   /*
    * Re-opening a note from the Inbox has to restore what was attached to it.
@@ -59,7 +68,16 @@ export default function CaptureScreen() {
    */
   const editingNote = params.from ? data.inbox.find((n) => n.id === params.from) : undefined;
 
-  const [tab, setTab] = useState<CaptureKind>(editingNote?.kind ?? 'text');
+  /*
+   * Launching lands on Voice, not Text. Opening straight into a keyboard is
+   * "type something now"; opening onto Pip is an invitation, and speaking is
+   * the lower-effort way to get a thought out when you have not yet decided
+   * what the thought is. The + button keeps its Text default — by then you
+   * have chosen to capture and the keyboard is what you want.
+   */
+  const [tab, setTab] = useState<CaptureKind>(
+    editingNote?.kind ?? (launched ? 'voice' : 'text'),
+  );
   const [text, setText] = useState(params.draft ?? '');
   /** Set once a voice pass produces a transcript, so the note records its length. */
   const [durationSec, setDurationSec] = useState<number | undefined>(editingNote?.durationSec);
@@ -71,6 +89,19 @@ export default function CaptureScreen() {
   const trimmed = text.trim();
   const tooShort = trimmed.length < MIN_CAPTURE;
   const editing = !!params.from;
+
+  /**
+   * Leaving the screen.
+   *
+   * The launch instance is *pushed* over the tabs rather than replacing them,
+   * so Back already lands on Home. The fallback covers the case where there is
+   * genuinely nothing beneath — a cold deep link straight to `/capture` — so
+   * that closing is never a dead end with no way back into the app.
+   */
+  const dismiss = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  }, [router]);
 
   /**
    * Attachments are *supporting* context, so they do not substitute for the
@@ -99,7 +130,7 @@ export default function CaptureScreen() {
       'success',
     );
     setSaving(false);
-    router.back();
+    dismiss();
   }, [
     canSave,
     trimmed,
@@ -111,7 +142,7 @@ export default function CaptureScreen() {
     discardCaptures,
     editing,
     toast,
-    router,
+    dismiss,
   ]);
 
   const onTranscript = useCallback((transcript: string, seconds: number) => {
@@ -133,7 +164,7 @@ export default function CaptureScreen() {
           icon={<X size={20} color={scheme.textSecondary} />}
           accessibilityLabel="Close without saving"
           size={38}
-          onPress={() => router.back()}
+          onPress={dismiss}
         />
         <View style={styles.tabs}>
           <SegmentedTabs

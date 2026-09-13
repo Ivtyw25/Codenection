@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Stack } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 
@@ -71,12 +71,47 @@ function ThemedShell() {
         ) : (
           <>
             <Routes />
+            <LaunchCapture />
             <ToastHost />
           </>
         )}
       </ReduceMotionProvider>
     </ThemeOverrideProvider>
   );
+}
+
+/**
+ * Opens the app on Capture rather than on Home.
+ *
+ * Home is the densest screen in the app — a day timeline, Pip's state, the
+ * week's vitals — and meeting all of it before you have said anything is the
+ * overwhelm this app exists to reduce. Landing on Capture puts the one thing
+ * you came to do in front of you and lets Home be somewhere you *choose* to
+ * go.
+ *
+ * It is a **push, not a replace**, which is the whole trick: the tabs are
+ * still mounted underneath, so closing Capture pops onto a fully-built Home
+ * and the tab bar behaves exactly as it always has. Nothing downstream has to
+ * know that the app opened somewhere else.
+ *
+ * Gated on `useRootNavigationState().key` because navigating before the root
+ * navigator has mounted is dropped silently, and on a ref so that a re-render
+ * never pushes a second copy.
+ */
+function LaunchCapture() {
+  const router = useRouter();
+  const navState = useRootNavigationState();
+  const pushed = useRef(false);
+
+  const ready = !!navState?.key;
+
+  useEffect(() => {
+    if (!ready || pushed.current) return;
+    pushed.current = true;
+    router.push({ pathname: '/capture', params: { launch: '1' } });
+  }, [ready, router]);
+
+  return null;
 }
 
 function Routes() {
