@@ -25,6 +25,7 @@ import { uid } from '@/data/api';
 import { formatBytes } from '@/data/attachments';
 import { isBlocked } from '@/data/derive';
 import { slugify } from '@/data/categories';
+import { applyMoves, type Move } from '@/data/rebalance';
 import { isoDate } from '@/data/format';
 import type {
   AppData,
@@ -117,6 +118,7 @@ type Action =
   | { type: 'task/patch'; id: TaskId; patch: Partial<Task> }
   | { type: 'task/remove'; id: TaskId }
   | { type: 'task/add'; tasks: Task[] }
+  | { type: 'rebalance/apply'; moves: Move[]; at: string }
   | { type: 'category/add'; label: string; icon: IconName }
   | { type: 'category/patch'; id: CategoryId; patch: Partial<Omit<Category, 'id'>> }
   | { type: 'category/archive'; id: CategoryId; on: boolean }
@@ -292,6 +294,42 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'task/add':
       return { ...state, data: { ...data, tasks: [...data.tasks, ...action.tasks] } };
+
+    /*
+     * The whole plan, in one move.
+     *
+     * Applied through `applyMoves` — the very function the sheet used to price
+     * the plan — rather than through a second reducer that re-implements what
+     * each lever does. That is the only way the number the user agreed to is
+     * the number they get: one implementation, used to both promise and
+     * deliver.
+     *
+     * The simulator models only what pressure needs, so the audit stamps a drop
+     * carries are filled in here — Weekly Reflect reads them later to say what
+     * was let go and what it bought. `postponedFrom` and `postponeCount` are
+     * already set by `applyMove` itself, since urgency depends on them.
+     */
+    case 'rebalance/apply': {
+      const dropped = new Set(
+        action.moves.filter((m) => m.lever === 'drop').map((m) => m.taskId),
+      );
+
+      return {
+        ...state,
+        data: {
+          ...data,
+          tasks: applyMoves(data.tasks, action.moves).map((task) =>
+            dropped.has(task.id)
+              ? {
+                  ...task,
+                  droppedAt: action.at,
+                  dropReason: task.dropReason ?? 'Let go during a rebalance',
+                }
+              : task,
+          ),
+        },
+      };
+    }
 
     case 'category/add': {
       const id = slugify(
@@ -469,6 +507,14 @@ export interface AppApi {
   patchTask: (id: TaskId, patch: Partial<Task>) => void;
   removeTask: (id: TaskId) => void;
 
+  /**
+   * Commit a whole rebalance plan.
+   *
+   * Takes the exact `Move[]` the sheet showed and priced, so what the user
+   * agreed to and what the store does cannot diverge.
+   */
+  applyRebalance: (moves: Move[]) => void;
+
   /** Categories are the user's own — they can add, rename and retire them. */
   addCategory: (label: string, icon: IconName) => void;
   patchCategory: (id: CategoryId, patch: Partial<Omit<Category, 'id'>>) => void;
@@ -640,6 +686,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'review/delegate', proposalId, subId, to }),
       patchTask: (id, patch) => dispatch({ type: 'task/patch', id, patch }),
       removeTask: (id) => dispatch({ type: 'task/remove', id }),
+
+      applyRebalance: (moves) =>
+        dispatch({ type: 'rebalance/apply', moves, at: new Date().toISOString() }),
 
       addCategory: (label, icon) => dispatch({ type: 'category/add', label, icon }),
       patchCategory: (id, patch) => dispatch({ type: 'category/patch', id, patch }),

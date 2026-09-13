@@ -46,7 +46,7 @@ import type {
 } from '@/types';
 import { categoryLabel, findCategory } from './categories';
 import { derivePressure, openTasks } from './derive';
-import { dayOffset, formatEstimate, isOverdue } from './format';
+import { dayOffset, formatEstimate, isOverdue, startOfDay } from './format';
 
 /** One proposed change. Priced, reversible, and explained. */
 export interface Move {
@@ -101,8 +101,22 @@ export const REBALANCE_THRESHOLD = 68;
 /** Where the plan tries to land. Comfortably inside the Balanced band. */
 export const REBALANCE_TARGET = 52;
 
-/** How far out a postpone pushes, in days. */
-const POSTPONE_DAYS = 3;
+/**
+ * How far out a postpone pushes.
+ *
+ * At least three days, but always far enough to leave the crunch week —
+ * `urgency` weights everything from two to six days out identically, so a
+ * three-day nudge on a task due Thursday buys *literally nothing*. The first
+ * measured run of the seeded fixture proved it: two of the three postpone
+ * candidates priced at zero and were silently dropped, and the one that
+ * survived moved the number by one point.
+ *
+ * A lever that usually buys nothing is worse than no lever, because the student
+ * still pays the cost of considering it. So a postpone means "not this week",
+ * which is what the sheet's copy already promised.
+ */
+const POSTPONE_MIN_DAYS = 3;
+const POSTPONE_CLEAR_WEEK_DAYS = 8;
 
 /** A task moved this many times already is not postponed again — it is dropped. */
 const MAX_POSTPONES = 2;
@@ -150,6 +164,30 @@ export function applyMove(tasks: Task[], move: Move): Task[] {
 /** Apply a whole plan, in order. Used by the store's one-tap commit. */
 export function applyMoves(tasks: Task[], moves: Move[]): Task[] {
   return moves.reduce(applyMove, tasks);
+}
+
+/**
+ * What an arbitrary SUBSET of a plan is really worth.
+ *
+ * The sheet lets a student un-tick any row, and each move's stored `relief` was
+ * priced *sequentially* — against the list as it stood after every earlier
+ * accepted move. Those figures therefore only sum correctly for the whole plan,
+ * or for a prefix of it. Skip the first of three and the remaining two are each
+ * quoting a saving measured in a world that no longer happens.
+ *
+ * So the footer asks this instead of adding up the rows. It is the same
+ * simulate-and-diff the engine uses, run over exactly the moves the user has
+ * agreed to, which keeps the one promise this file exists to keep: the number
+ * on the button is the number the gauge moves.
+ */
+export function priceSubset(
+  tasks: Task[],
+  moves: Move[],
+  now: Date = new Date(),
+): { before: number; after: number; relief: number } {
+  const before = derivePressure(tasks, now);
+  const after = derivePressure(applyMoves(tasks, moves), now);
+  return { before, after, relief: Math.max(0, before - after) };
 }
 
 /** What one move is actually worth, against the list it would act on. */
@@ -239,15 +277,29 @@ function postponeCandidates(tasks: Task[], categories: Category[], now: Date): M
     if (dayOffset(task.dueAt, now) > 6) continue;
     if (task.load === 'high') continue; // the hard deadlines stay put
 
-    const moved = new Date(task.dueAt);
-    moved.setDate(moved.getDate() + POSTPONE_DAYS);
+    // Whichever is later: a minimum nudge from where it sits, or clear of the
+    // week entirely. The second is what usually does the work.
+    const nudged = new Date(task.dueAt);
+    nudged.setDate(nudged.getDate() + POSTPONE_MIN_DAYS);
+
+    const clearOfWeek = startOfDay(now);
+    clearOfWeek.setDate(clearOfWeek.getDate() + POSTPONE_CLEAR_WEEK_DAYS);
+    clearOfWeek.setHours(
+      new Date(task.dueAt).getHours(),
+      new Date(task.dueAt).getMinutes(),
+      0,
+      0,
+    );
+
+    const moved = nudged > clearOfWeek ? nudged : clearOfWeek;
+    const days = Math.max(1, Math.round((moved.getTime() - new Date(task.dueAt).getTime()) / 86_400_000));
 
     const times = task.postponeCount ?? 0;
     moves.push({
       id: `mv_post_${task.id}`,
       lever: 'postpone',
       taskId: task.id,
-      title: `Move “${task.title}” out ${POSTPONE_DAYS} days`,
+      title: `Move “${task.title}” out ${days} days`,
       reason:
         times > 0
           ? `${categoryLabel(categories, task.categoryId)} · moved ${times === 1 ? 'once' : `${times} times`} already.`

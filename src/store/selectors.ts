@@ -25,6 +25,7 @@ import {
 } from '@/data/derive';
 import { activeCategories, findCategory } from '@/data/categories';
 import { explainVital, type VitalExplanation } from '@/data/explain';
+import { planRebalance, type RebalancePlan } from '@/data/rebalance';
 import {
   buildSchedule,
   plannedMinutes,
@@ -154,6 +155,25 @@ export function useTaskList(): Task[] {
 export function useCategoryCounts(): Record<string, number> {
   const { data, state } = useApp();
   return useMemo(() => categoryCounts(data.tasks, state.query), [data.tasks, state.query]);
+}
+
+// ── Rebalance ───────────────────────────────────────────────────────────────
+
+/**
+ * What Pip would move, if asked.
+ *
+ * Recomputed from the live task list like every other derived value, so the
+ * plan a student opens is a plan for the week they have right now — not one
+ * cached from whenever the banner first appeared. Ticking something off and
+ * re-opening the sheet genuinely produces a smaller plan.
+ */
+export function useRebalancePlan(): RebalancePlan {
+  const { data } = useApp();
+  const now = useNow();
+  return useMemo(
+    () => planRebalance(data.tasks, data.teammates, data.categories, now),
+    [data.tasks, data.teammates, data.categories, now],
+  );
 }
 
 // ── Categories ──────────────────────────────────────────────────────────────

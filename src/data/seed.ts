@@ -259,6 +259,136 @@ const TASKS: Task[] = [
     subtasks: [],
     resources: [],
   },
+
+  /*
+   * ── Midterm season ──────────────────────────────────────────────────────
+   *
+   * The three tasks below exist because the fixture was measured and found to
+   * be lying about itself. With the four tasks above, the seeded world scores
+   * **29 pressure** and opens Balanced — a pleasant Tuesday. Every feature
+   * built for a week that has gone wrong (the Rebalancer, the Critical state,
+   * the whole recovery arc) was therefore unreachable in the demo: the entry
+   * banner is gated on `REBALANCE_THRESHOLD` at 68, and nothing could get near
+   * it.
+   *
+   * These three take it to ~86 with Pip Critical, which is the state the app
+   * is actually about. The lever doing most of the work is the overdue lab
+   * report: `urgency` weights anything past its deadline at 2.0, double a task
+   * due today, because an overdue item is the heaviest thing a student
+   * carries.
+   *
+   * TO DEMO A CALM WEEK INSTEAD, delete these three. Nothing else depends on
+   * them — the capture → clarify → review flow runs off `inbox`, and the
+   * dependency-graph shapes all live in the tasks above.
+   */
+  {
+    id: 't_lab',
+    title: 'Write up the Networks lab report',
+    status: 'open',
+    categoryId: 'academics',
+    tag: '#Coursework',
+    // Yesterday. The single heaviest thing in the fixture, and the reason the
+    // Rebalancer refuses to postpone it — see `postponeCandidates`.
+    dueAt: at(-1, 17),
+    estimateMin: 90,
+    load: 'medium',
+    icon: 'FileText',
+    createdAt: at(-5, 11),
+    completedAt: null,
+    subtasks: [
+      {
+        id: 't_lab_s1',
+        title: 'Plot the throughput results',
+        done: false,
+        estimateMin: 40,
+        dependsOn: [],
+        delegatedTo: null,
+        completedAt: null,
+      },
+      {
+        id: 't_lab_s2',
+        title: 'Write the discussion section',
+        done: false,
+        estimateMin: 50,
+        dependsOn: ['t_lab_s1'],
+        delegatedTo: null,
+        completedAt: null,
+      },
+    ],
+    resources: [],
+    pipNote:
+      'This one is already late, so it is costing you twice what it would have on Friday. It is the first thing worth clearing.',
+  },
+  {
+    id: 't_essay',
+    title: 'Finish the Ethics essay draft',
+    status: 'open',
+    categoryId: 'academics',
+    tag: '#Academics',
+    dueAt: at(0, 23),
+    estimateMin: 120,
+    load: 'high',
+    icon: 'BookOpen',
+    createdAt: at(-4, 9),
+    completedAt: null,
+    subtasks: [
+      {
+        id: 't_essay_s1',
+        title: 'Settle on the argument',
+        done: false,
+        estimateMin: 30,
+        dependsOn: [],
+        delegatedTo: null,
+        completedAt: null,
+      },
+      {
+        id: 't_essay_s2',
+        title: 'Draft the three body sections',
+        done: false,
+        estimateMin: 90,
+        dependsOn: ['t_essay_s1'],
+        delegatedTo: null,
+        completedAt: null,
+      },
+    ],
+    resources: [],
+  },
+  {
+    id: 't_standup',
+    title: 'Prep the internship sprint demo',
+    status: 'open',
+    categoryId: 'internship',
+    tag: '#Work',
+    dueAt: at(1, 10),
+    estimateMin: 120,
+    load: 'high',
+    icon: 'Briefcase',
+    createdAt: at(-2, 14),
+    completedAt: null,
+    subtasks: [
+      {
+        id: 't_standup_s1',
+        title: 'Pull the sprint metrics',
+        done: false,
+        estimateMin: 45,
+        dependsOn: [],
+        delegatedTo: null,
+        completedAt: null,
+      },
+      {
+        id: 't_standup_s2',
+        title: 'Build the slides',
+        done: false,
+        estimateMin: 75,
+        dependsOn: ['t_standup_s1'],
+        delegatedTo: null,
+        completedAt: null,
+      },
+    ],
+    resources: [],
+    pipNote:
+      'Assigned to you by name, so Pip will not offer to hand this one off. Moving it is the only lever here.',
+  },
 ];
 
 /** The four sub-stats blended through the shipped model. */
@@ -491,37 +621,45 @@ export function seedData(): AppData {
       },
     ],
     /**
-     * Today's four readings.
+     * Today's four readings — midterm season.
      *
-     * Deliberately not four healthy numbers. Three sit at or above this user's
-     * marks and Social Connection sits sixteen points below its own — which is
-     * the only configuration that gives the detail page something true to
-     * explain, and the one a headline Vitality of 68 would otherwise hide.
+     * Deliberately not four healthy numbers, and deliberately not the mild set
+     * they used to be. The brief's storyline is a student in crunch with "zero
+     * physical recovery", and the reserve has to actually show that: a low
+     * Vitality is half of what tips `derivePipState` into Critical, and with
+     * the old readings (71/76/68/44) the app opened Balanced no matter how
+     * heavy the task list got.
+     *
+     * Every one of the four is now below this user's own mark, but they are
+     * below it by different amounts and for different reasons, which is what
+     * keeps the detail page worth opening: Physical has collapsed (the first
+     * thing to go in a bad week), Rest is badly down, Mood is sagging with it,
+     * and Social continues the long quiet slide it has been on all week.
      */
     vitals: [
       {
         id: 'rest',
         label: 'Rest & Sleep',
-        value: 71,
-        note: '6h 40m last night, after a 7h 30m average earlier in the week.',
+        value: 38,
+        note: '5h 10m last night, and under six hours for four nights running.',
       },
       {
         id: 'mood',
         label: 'Mood & Stress',
-        value: 76,
-        note: 'Check-ins have been steady-to-positive for four days.',
+        value: 45,
+        note: 'Three flat check-ins this week, and none since Tuesday.',
       },
       {
         id: 'physical',
         label: 'Physical Vitality',
-        value: 68,
-        note: 'Two sessions and roughly 6,200 steps a day this week.',
+        value: 30,
+        note: 'No sessions in nine days, and under 2,000 steps on four of them.',
       },
       {
         id: 'social',
         label: 'Social Connection',
-        value: 44,
-        note: 'No shared time logged in six days — the longest gap this month.',
+        value: 41,
+        note: 'No shared time logged in eight days — the longest gap this month.',
       },
     ],
     vitalityModel: DEFAULT_VITALITY_MODEL,

@@ -129,6 +129,18 @@ function Routes() {
         which one "back" dismisses.
       */}
       <Stack.Screen name="delegate" options={{ animation: 'slide_from_right' }} />
+
+      {/*
+        The Rebalancer rises from the bottom, like Capture and Review.
+
+        It is deliberately NOT a push. A push reads as "going deeper into your
+        task list", which is the opposite of what this screen does; a sheet
+        reads as something offered, that you can dismiss by pushing it back
+        down. For a screen whose whole proposition is "you are allowed to put
+        things down", the gesture matters.
+      */}
+      <Stack.Screen name="rebalance" options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="categories" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );
 }

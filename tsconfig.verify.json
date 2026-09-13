@@ -18,9 +18,9 @@
     "outDir": ".verify-build",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": [],
+    "types": ["node"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/data/rebalance.ts", "src/data/derive.ts", "src/data/categories.ts"],
+  "include": ["src/data/rebalance.ts", "src/data/derive.ts", "src/data/categories.ts", "src/data/seed.ts"],
   "exclude": ["node_modules"]
 }

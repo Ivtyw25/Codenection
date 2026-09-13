@@ -72,7 +72,11 @@ export default function TabsLayout() {
           title: 'Tasks',
           // Live count — the bar reports the backlog without being opened.
           tabBarBadge: openToday > 0 ? openToday : undefined,
-          tabBarBadgeStyle: { backgroundColor: scheme.primary, color: scheme.onPrimary, fontSize: 10 },
+          tabBarBadgeStyle: {
+            backgroundColor: scheme.primary,
+            color: scheme.onPrimary,
+            fontSize: type.caption.fontSize,
+          },
           tabBarIcon: ({ color, focused }) => (
             <CheckSquare size={22} color={color} strokeWidth={focused ? 2.4 : 2} />
           ),

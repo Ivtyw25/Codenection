@@ -209,3 +209,109 @@ restorative, feature-complete, free of cognitive friction.
      **untouched**.
 
 ---
+
+### [2026-09-13 12:34:10] — Iteration Cycle #3
+
+- **Focus Area:** Close the three blockers from Cycle #2 — the Rebalancer's UI,
+  the category manager, and the second @UXAgent pass over the files the first
+  audit missed. Plus one thing nobody had asked for, because measuring the
+  fixture exposed it.
+
+- **The finding that reframed the cycle.** Before building the Rebalancer's
+  entry point, the seeded world was measured rather than assumed. It scored
+  **29 pressure, Vitality 68, Pip Balanced** — a pleasant Tuesday. The
+  Rebalancer's banner is gated at `REBALANCE_THRESHOLD` (68), so **the entire
+  feature was unreachable in the demo**, along with the Critical state and the
+  whole recovery arc. The brief's storyline calls for a student "at 88%
+  critical overload with zero physical recovery"; the fixture was describing
+  somebody else's week.
+
+  Three midterm-season tasks were added (an overdue lab report, an essay due
+  tonight, a sprint demo due tomorrow) and the four vitals dropped to a genuine
+  crunch (`rest 38 · mood 45 · physical 30 · social 41`). The seed now measures
+  **86 pressure, Vitality 31, Pip Critical**, and the Rebalancer triggers. The
+  seed comments say exactly which three tasks to delete to demo a calm week
+  instead.
+
+- **@UserAgent critique & proposals:**
+  - *"Don't make me build the plan."* Every move in the sheet starts **accepted**
+    — the student vetoes what Pip got wrong rather than assembling a plan from
+    scratch. An all-unticked default hands a depleted person a fresh pile of
+    decisions, which is the tax this screen exists to remove.
+  - *"Show me what it costs, not just what it saves."* `Move.cost` renders at the
+    same weight as the −N relief. Selling the saving and whispering the price is
+    how an app talks somebody out of something they needed.
+  - Emergent: the categories screen shows **what each category is currently
+    costing**, not just its name. A list of labels is administration; the same
+    list with live load is where somebody notices the category they were about
+    to rename is carrying half their week.
+
+- **@UXAgent review (second Gemini pass, verified by Claude):**
+  - **Confirmed and fixed.** Overdue state was conveyed **by colour alone** —
+    `TaskCard` and the task sheet flipped a chip to `danger` while the label
+    stayed a bare date. The single most consequential fact on the card, carried
+    entirely by hue, in an app whose own system forbids it. The label now reads
+    "Overdue · Tue, 5:00 PM".
+  - **Confirmed and fixed.** `NextActionRow` returned a bare `View` when not
+    pressable, announcing chevron / time / title as three stops for one
+    instruction. Now one grouped label.
+  - **Confirmed and fixed.** Tab-bar badge at `fontSize: 10`, off the type scale.
+  - **Rejected — the audit's own doubt was wrong in both directions.** It
+    flagged uncertainty that `space[20]` exists; it does (80, the deliberate
+    section-rhythm jump). But its suggested use — an 80px rhythm token as an
+    input's width — is semantically wrong, so the fix was declined anyway.
+  - **Verified silence.** It reported zero `textDisabled` violations across the
+    twelve files. A grep confirmed zero: Cycle #2's sweep was complete. Silence
+    checked rather than trusted.
+  - **Coverage gap again, and stated honestly by the delegation.** Four of the
+    twelve files drew no findings at all — including `LoadBreakdown.tsx` and
+    `TaskIcon.tsx`, the two written last cycle and explicitly flagged as never
+    reviewed. Those four remain **unaudited, not clean**.
+
+- **Code / changes implemented:**
+  - **New** `app/rebalance.tsx` — the sheet. Rises from the bottom rather than
+    pushing from the right: a push reads as going deeper into the task list,
+    which is the opposite of what this screen does.
+  - **New** `app/categories.tsx` — add, rename in place, retire, restore, and
+    set `shareable` per category. Archive, never delete.
+  - Store: `rebalance/apply` committing through the **same** `applyMoves` the
+    sheet priced with, so what the user agreed to and what the store does cannot
+    diverge. Drop stamps (`droppedAt`, `dropReason`) recorded for Reflect.
+  - Entry points: a Home banner shown **only** when the plan both triggered and
+    found something safe to move, and a Categories row on Profile.
+  - Seed rebuilt for midterm season; vitals dropped to match.
+  - `priceSubset` + the audit fixes above.
+
+- **Verification Gate — two more defects only execution could find:**
+  1. **`POSTPONE_DAYS = 3` was a lever that usually bought nothing.** `urgency`
+     weights everything two-to-six days out identically, so nudging a task due
+     Thursday by three days moved the number by zero — and `planRebalance`
+     correctly refuses to offer a move worth nothing, so the postpones were
+     being silently dropped. Measured on the seed: 2 of 3 candidates priced at
+     zero. A postpone now clears the week (≥8 days) or nudges ≥3, whichever is
+     later. Seed plan went from 3 moves / 6 points to **4 moves / 9 points**.
+  2. **Summing the rows would have been the wrong arithmetic for the footer.**
+     Each move's `relief` is priced sequentially, so those figures only add up
+     for the whole plan or a prefix — un-tick the first of three and the rest
+     are quoting savings from a world that no longer happens. The harness
+     showed the naive sum *happens* to agree under today's model (it is linear
+     in minutes removed), which is exactly the kind of accidental correctness
+     that breaks later. The sheet now calls `priceSubset`, exact by
+     construction.
+
+- **Gate:** `tsc --noEmit` clean · `eslint` clean · `npm run verify` 21/21.
+
+- **Consensus status:** **Re-looping.** All three Cycle #2 blockers are closed.
+  Outstanding before sign-off:
+  1. `app/review.tsx` — still the worst-offending screen for cognitive noise,
+     still untouched. Carried for a third cycle; it should lead Cycle #4.
+  2. Four files remain genuinely unaudited, `LoadBreakdown.tsx` among them.
+  3. The Rebalancer relieves only 9 of 86 points on the seeded week. That is
+     *honest* — the week is mostly un-delegable academic work against fixed
+     deadlines, and the copy says so — but @UserAgent notes that a student in
+     crisis being told "the rest is genuinely yours" needs somewhere to go
+     next, and the Vitality-First Action Engine (recovery interventions) does
+     not exist yet. That is the real answer to an immovable week, and it is the
+     largest remaining gap against the brief.
+
+---

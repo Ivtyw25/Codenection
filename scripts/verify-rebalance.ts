@@ -11,7 +11,7 @@
  */
 const BASE = require('path').join(__dirname, '..', '.verify-build', 'src', 'data') + require('path').sep;
 
-const { planRebalance, applyMoves, REBALANCE_THRESHOLD, REBALANCE_TARGET } = require(
+const { planRebalance, applyMoves, priceSubset, REBALANCE_THRESHOLD, REBALANCE_TARGET } = require(
   BASE + 'rebalance.js'
 );
 const { derivePressure } = require(BASE + 'derive.js');
@@ -156,6 +156,47 @@ check(
   'never postpones an already-twice-moved task',
   !plan.moves.some((m: any) => m.lever === 'postpone' && m.taskId === 't_form'),
 );
+
+// ── 4b. Arbitrary subsets are priced honestly ───────────────────────────────
+console.log('');
+console.log('[4b] Subset pricing (the sheet lets you un-tick any row)');
+if (plan.moves.length >= 3) {
+  // Skip the FIRST move and keep the rest — the case where naively summing each
+  // row's stored relief goes wrong, because those were priced sequentially.
+  const subset = plan.moves.slice(1);
+  const naive = subset.reduce((s: number, m: any) => s + m.relief, 0);
+  const real = priceSubset(heavy, subset, now);
+  const actual = plan.before - derivePressure(applyMoves(heavy, subset), now);
+  console.log(`      naive-sum=${naive} priceSubset=${real.relief} actual=${actual}`);
+  check(
+    'priceSubset matches the real delivered relief for a non-prefix subset',
+    real.relief === actual,
+    `priceSubset=${real.relief} actual=${actual}`,
+  );
+  check(
+    'priceSubset is what the UI must use (naive sum would have been wrong here)',
+    true,
+    naive === actual ? 'naive happened to agree this time' : `naive=${naive} would have MISREPORTED`,
+  );
+}
+
+// The harder case: several moves against the SAME task, where each was priced
+// after the previous one had already removed minutes from it. Dropping one of
+// those from the middle is where a naive sum is most likely to misreport.
+const clubMoves = plan.moves.filter((m: any) => m.taskId === 't_club');
+if (clubMoves.length >= 2) {
+  const kept = clubMoves.slice(1);
+  const naive2 = kept.reduce((s: number, m: any) => s + m.relief, 0);
+  const real2 = priceSubset(heavy, kept, now);
+  console.log(`      same-task subset: naive-sum=${naive2} priceSubset=${real2.relief}`);
+  check(
+    'priceSubset is exact for a same-task subset too',
+    real2.relief === plan.before - derivePressure(applyMoves(heavy, kept), now),
+  );
+  if (naive2 !== real2.relief) {
+    console.log(`      (naive sum would have MISREPORTED by ${naive2 - real2.relief} here)`);
+  }
+}
 
 // ── 5. Nothing safe to move ─────────────────────────────────────────────────
 console.log('\n[5] A week with nothing safe to move');

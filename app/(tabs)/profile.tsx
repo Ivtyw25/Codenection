@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronRight, Inbox, Star, TriangleAlert } from 'lucide-react-native';
+import { ChevronRight, Inbox, Layers, Star, TriangleAlert } from 'lucide-react-native';
 
 import { PipMascot } from '@/components/app';
 import {
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui';
 import { failNext } from '@/data/api';
 import { useApp } from '@/store/AppStore';
-import { usePipState } from '@/store/selectors';
+import { useCategories, usePipState } from '@/store/selectors';
 import { brand, radius, space, status, useScheme } from '@/theme';
 
 /**
@@ -33,6 +33,7 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const { data, patchSettings, toast, reload } = useApp();
+  const activeCategories = useCategories();
   const pip = usePipState();
 
   const [confirmReset, setConfirmReset] = useState(false);
@@ -99,6 +100,32 @@ export default function ProfileScreen() {
         {data.inbox.length > 0 ? (
           <Chip label={String(data.inbox.length)} size="sm" tone="info" />
         ) : null}
+        <ChevronRight size={18} color={scheme.textMuted} />
+      </Card>
+
+      {/*
+        ── Categories ────────────────────────────────────────────────────
+
+        Filed under the person, not under Preferences. These are not a setting
+        — they are the shape of what this student carries, and the thing every
+        load number on every other screen is broken down by. Burying them among
+        toggles would say they were chrome.
+      */}
+      <Card
+        onPress={() => router.push('/categories')}
+        accessibilityLabel={`Categories, ${activeCategories.length} active`}
+        accessibilityHint="Add, rename or retire the categories your load is split by"
+        style={styles.navRow}
+      >
+        <View style={[styles.navIcon, { backgroundColor: scheme.surfaceAlt }]}>
+          <Layers size={17} color={scheme.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Txt variant="h4">Categories</Txt>
+          <Txt variant="caption" muted>
+            {`${activeCategories.length} ${activeCategories.length === 1 ? 'category' : 'categories'} · what your load is split by`}
+          </Txt>
+        </View>
         <ChevronRight size={18} color={scheme.textMuted} />
       </Card>
 

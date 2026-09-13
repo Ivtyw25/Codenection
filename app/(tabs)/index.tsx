@@ -2,7 +2,16 @@ import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Bell, CheckCircle2, ChevronRight, Clock, Flame, Inbox, Leaf } from 'lucide-react-native';
+import {
+  Bell,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Flame,
+  Inbox,
+  Leaf,
+  Scale,
+} from 'lucide-react-native';
 
 import {
   ForecastRow,
@@ -26,6 +35,7 @@ import {
   useInboxCount,
   useLoadBreakdown,
   useNow,
+  useRebalancePlan,
   usePipState,
   useStreak,
   useTodayTimeline,
@@ -49,6 +59,7 @@ export default function HomeScreen() {
   const { data, toggleTask, toggleSubtask, reload, toast, setQuery } = useApp();
   const capacity = useCapacity();
   const breakdown = useLoadBreakdown();
+  const plan = useRebalancePlan();
   const forecast = useForecast();
   const pip = usePipState();
   const streak = useStreak();
@@ -232,6 +243,42 @@ export default function HomeScreen() {
             />
           </Card>
 
+          {/*
+            ── The Rebalancer's only entry point ──────────────────────────
+
+            Shown ONLY when `planRebalance` has both triggered and actually
+            found something safe to move. A permanent "Rebalance" button would
+            be an accusation sitting on the home screen every day of an ordinary
+            week; and offering the flow when the engine has nothing to propose
+            would walk a struggling student into an empty room.
+
+            It is phrased as an offer with the relief already priced, not as an
+            alert. "Pip found 5 moves" — not "You are overloaded".
+          */}
+          {plan.triggered && plan.moves.length > 0 ? (
+            <Interactive
+              accessibilityRole="button"
+              accessibilityLabel={`Pip found ${plan.moves.length} ${plan.moves.length === 1 ? 'move' : 'moves'} that would take ${plan.before - plan.after} points off your week. Review them.`}
+              onPress={() => router.push('/rebalance')}
+              radius="lg"
+              style={[
+                styles.rebalance,
+                { backgroundColor: status.warning.bg, borderColor: status.warning.solid },
+              ]}
+            >
+              <Scale size={18} color={status.warning.fg} />
+              <View style={{ flex: 1, gap: space[0.5] }}>
+                <Txt variant="h4" color={status.warning.fg}>
+                  This week is over its limits
+                </Txt>
+                <Txt variant="caption" color={status.warning.fg}>
+                  {`Pip found ${plan.moves.length} ${plan.moves.length === 1 ? 'move' : 'moves'} worth ${plan.before - plan.after} points. Nothing happens until you say so.`}
+                </Txt>
+              </View>
+              <ChevronRight size={18} color={status.warning.fg} />
+            </Interactive>
+          ) : null}
+
           {/* ── Streak ──────────────────────────────────────────────────── */}
           <Interactive
             accessibilityRole="button"
@@ -400,6 +447,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  rebalance: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2.5],
+    padding: space[3.5],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
   streak: {
     flexDirection: 'row',
     alignItems: 'center',

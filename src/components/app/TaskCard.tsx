@@ -89,8 +89,16 @@ export function TaskCard({
       <View style={styles.meta}>
         {task.tag ? <Chip label={task.tag} tone="success" size="sm" /> : null}
 
+        {/*
+          The word, not just the colour.
+
+          This chip previously said "Tue, 5:00 PM" in red and nothing else, so
+          "overdue" — the single most consequential fact on the card — was
+          carried entirely by hue. The design system forbids exactly this, and
+          red/grey is among the commonest confusions. The label now says it.
+        */}
         <Chip
-          label={formatDue(task.dueAt, now)}
+          label={overdue ? `Overdue · ${formatDue(task.dueAt, now)}` : formatDue(task.dueAt, now)}
           size="sm"
           tone={overdue ? 'danger' : 'neutral'}
         />
@@ -131,8 +139,18 @@ function NextActionRow({
 }) {
   const scheme = useScheme();
 
+  /*
+     Grouped even when it is not pressable.
+     Without `onPress` this returned a bare View, so the chevron, the time and
+     the title announced as three stops for one instruction. The pressable
+     branch below already groups itself via `Card`.
+  */
   const body = (
-    <View style={[styles.next, { backgroundColor: scheme.surfaceAlt }]}>
+    <View
+      accessible
+      accessibilityLabel={at ? `Next: ${title}, at ${formatClock(at)}` : `Next: ${title}`}
+      style={[styles.next, { backgroundColor: scheme.surfaceAlt }]}
+    >
       <ChevronRight size={14} color={scheme.textMuted} />
       {at ? (
         <Txt variant="caption" color={scheme.primary}>

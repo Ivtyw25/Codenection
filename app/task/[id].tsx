@@ -221,7 +221,7 @@ export default function TaskDetailScreen() {
         </View>
         <View style={styles.chipRow}>
           <Chip
-            label={formatDue(task.dueAt, now)}
+            label={overdue ? `Overdue · ${formatDue(task.dueAt, now)}` : formatDue(task.dueAt, now)}
             tone={overdue ? 'danger' : 'neutral'}
             icon={<CalendarDays size={12} color={overdue ? status.danger.solid : scheme.textSecondary} />}
           />
