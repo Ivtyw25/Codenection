@@ -27,7 +27,8 @@
     "src/data/categories.ts",
     "src/data/seed.ts",
     "src/data/calibration.ts",
-    "src/data/recovery.ts"
+    "src/data/recovery.ts",
+    "src/data/conversation.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -26,13 +26,7 @@ import {
   onForest,
 } from '@/components/app';
 import { Card, Chip, EmptyState, IconButton, Interactive, Txt } from '@/components/ui';
-import {
-  CHECKIN_OPENER,
-  closingLine,
-  followUp,
-  type CheckInReply,
-  type CheckInTurn,
-} from '@/data/calibration';
+import { CHECKIN_HOUR } from '@/data/calibration';
 import { formatEstimate } from '@/data/format';
 import { useApp } from '@/store/AppStore';
 import type { Slot } from '@/store/selectors';
@@ -49,7 +43,6 @@ import {
   useWeekSeries,
 } from '@/store/selectors';
 import { radius, space, status, useScheme } from '@/theme';
-import type { PipState, PipStateName } from '@/types';
 
 /**
  * Home — SCR-10.
@@ -63,7 +56,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const now = useNow();
 
-  const { data, toggleTask, toggleSubtask, recordFeeling, reload, toast } = useApp();
+  const { data, toggleTask, toggleSubtask, reload, toast } = useApp();
   const capacity = useCapacity();
   const forecast = useForecast();
   const pip = usePipState();
@@ -278,16 +271,38 @@ export default function HomeScreen() {
             app that is not a derivation would be a prediction dressed as a
             report. Before nine it is not shown at all.
           */}
-          {!checkIn.answered && checkIn.open ? (
-            <CheckInCard
-              computed={pip}
-              pressure={capacity.pressure}
-              vitality={capacity.vitality}
-              onAnswer={(felt) => {
-                recordFeeling(felt, pip.name, capacity.pressure, capacity.vitality);
-              }}
-            />
-          ) : checkIn.answered && checkIn.note ? (
+          {!checkIn.answered ? (
+            <Interactive
+              accessibilityRole="button"
+              accessibilityLabel={
+                checkIn.open
+                  ? `Pip wants to hear how today went. Opens a conversation. Pip currently has you at ${pip.label}.`
+                  : `The end-of-day check-in opens at ${CHECKIN_HOUR}:00. Open it early.`
+              }
+              onPress={() => router.push('/checkin')}
+              radius="lg"
+              style={[
+                styles.checkIn,
+                {
+                  backgroundColor: checkIn.open ? scheme.surface : 'transparent',
+                  borderColor: checkIn.open ? scheme.primary : scheme.border,
+                },
+              ]}
+            >
+              <PipMascot size={checkIn.open ? 40 : 28} state={pip.name} />
+              <View style={{ flex: 1, gap: space[0.5] }}>
+                <Txt variant={checkIn.open ? 'h4' : 'bodySm'}>
+                  {checkIn.open ? 'How did today actually land?' : 'Pip will ask about today tonight'}
+                </Txt>
+                <Txt variant="caption" muted>
+                  {checkIn.open
+                    ? `Pip has you at ${pip.label.toLowerCase()}. Tell it in your own words — this is the only reading here that is not counted off your task list.`
+                    : `The check-in opens at ${CHECKIN_HOUR}:00, because "how was today?" at lunchtime is a prompt to invent an answer.`}
+                </Txt>
+              </View>
+              <ChevronRight size={16} color={checkIn.open ? scheme.primary : scheme.textMuted} />
+            </Interactive>
+          ) : checkIn.note ? (
             <Interactive
               accessibilityRole="button"
               accessibilityLabel={`Today's check-in is logged. ${checkIn.note}`}
@@ -443,143 +458,6 @@ export default function HomeScreen() {
   );
 }
 
-/**
- * The evening check-in, as a conversation.
- *
- * ── Why Pip goes first ─────────────────────────────────────────────────────
- *
- * The card opens by stating its own read and the two numbers behind it. Asking
- * "how do you feel?" cold collects a mood; asking it next to a stated
- * prediction collects a *correction*, which is the only thing this is for. It
- * also matters who is exposed: a tool that asks you to rate yourself is doing
- * something quite different from one that says what it thinks and invites you
- * to disagree with it.
- *
- * ── Why it asks twice ──────────────────────────────────────────────────────
- *
- * Because the first answer is usually the easy one. "Fine" is what anybody taps
- * at the end of a hard day, since it closes the card fastest — and one word
- * cannot separate a productive day that cost a lot from an empty one that cost
- * more, which are different states the calibration would learn the wrong thing
- * from. The follow-up asks something concrete (did you actually stop? was any
- * of it yours? did you sleep?) and is allowed to overrule the first answer.
- *
- * ── Why it stops at two ────────────────────────────────────────────────────
- *
- * This is a tired person at 9pm. An interview is a worse instrument than a
- * single question, because it gets abandoned — and an abandoned check-in
- * collects nothing at all. Two turns, then it tells them what it recorded and
- * gets out of the way.
- */
-function CheckInCard({
-  computed,
-  pressure,
-  vitality,
-  onAnswer,
-}: {
-  computed: PipState;
-  pressure: number;
-  vitality: number;
-  onAnswer: (felt: PipStateName) => void;
-}) {
-  const scheme = useScheme();
-
-  /** Nothing said yet / opener answered / finished. */
-  const [turn, setTurn] = useState<CheckInTurn>(CHECKIN_OPENER);
-  const [said, setSaid] = useState<string[]>([]);
-  const [settled, setSettled] = useState<PipStateName | null>(null);
-  const [done, setDone] = useState(false);
-
-  const answer = (reply: CheckInReply) => {
-    Haptics.selectionAsync().catch(() => {});
-    const felt = reply.felt ?? settled ?? computed.name;
-    setSaid((s) => [...s, reply.ack]);
-    setSettled(felt);
-
-    if (turn.id === CHECKIN_OPENER.id) {
-      setTurn(followUp(felt));
-      return;
-    }
-
-    // Second answer settles it. Recorded once, at the end, so a conversation
-    // somebody abandons halfway does not write a half-formed reading.
-    onAnswer(felt);
-    setDone(true);
-  };
-
-  return (
-    <Card style={styles.checkIn}>
-      <View style={styles.checkInHead}>
-        <SlidersHorizontal size={16} color={scheme.primary} />
-        <Txt variant="h4" style={{ flex: 1 }}>
-          {done ? 'Logged for today' : 'End of day'}
-        </Txt>
-      </View>
-
-      {/* Pip's read, stated before anything is asked. */}
-      {said.length === 0 ? (
-        <Txt variant="bodySm" muted>
-          Pip has today as{' '}
-          <Txt variant="bodySm" style={styles.semibold}>
-            {computed.label.toLowerCase()}
-          </Txt>{' '}
-          — pressure {pressure}, reserve {vitality}. That is counted off your task list, which can
-          only ever be half of it.
-        </Txt>
-      ) : null}
-
-      {/* What has been said so far, so the thread reads as one exchange. */}
-      {said.map((line, i) => (
-        <View key={i} style={[styles.ack, { borderLeftColor: scheme.primary }]}>
-          <Txt variant="caption" color={scheme.textSecondary}>
-            {line}
-          </Txt>
-        </View>
-      ))}
-
-      {done && settled ? (
-        <Txt variant="caption" color={scheme.textMuted}>
-          {closingLine(settled, computed.name)}
-        </Txt>
-      ) : (
-        <>
-          <Txt variant="bodySm">{turn.prompt}</Txt>
-
-          <View style={styles.replies}>
-            {turn.replies.map((reply) => (
-              <Interactive
-                key={reply.id}
-                accessibilityRole="button"
-                accessibilityLabel={reply.label}
-                onPress={() => answer(reply)}
-                radius="md"
-                style={[
-                  styles.reply,
-                  {
-                    // Pip's own guess is outlined on the opening turn only —
-                    // marking a "suggested" answer to the follow-up would be
-                    // the app leading the witness on the question that exists
-                    // precisely to catch it being wrong.
-                    borderColor:
-                      turn.id === CHECKIN_OPENER.id && reply.felt === computed.name
-                        ? scheme.primary
-                        : scheme.border,
-                  },
-                ]}
-              >
-                <Txt variant="bodySm" style={{ flex: 1 }}>
-                  {reply.label}
-                </Txt>
-                <ChevronRight size={15} color={scheme.textMuted} />
-              </Interactive>
-            ))}
-          </View>
-        </>
-      )}
-    </Card>
-  );
-}
-
 function greeting(now: Date): string {
   const h = now.getHours();
   if (h < 12) return 'Good morning';
@@ -606,17 +484,22 @@ const styles = StyleSheet.create({
   },
 
 
-  checkIn: { gap: space[2.5] },
-  checkInHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  replies: { gap: space[1.5] },
-  reply: {
+  /*
+    One row, two sizes.
+
+    After nine it is a card with Pip's face on it and a question in the title,
+    because that is the moment the answer is worth having. Before nine it is a
+    quiet bordered line that says when it opens — still tappable, because a
+    prototype that cannot be demonstrated before bedtime is not much of a
+    prototype, but visibly not the thing Home is asking you to do right now.
+  */
+  checkIn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[2],
-    paddingVertical: space[2.5],
-    paddingHorizontal: space[3],
+    gap: space[3],
+    padding: space[3.5],
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
   },
   // Pip's acknowledgements, marked as a quoted aside rather than as more body
   // copy — the thread has to read as an exchange, not as a paragraph that grew.

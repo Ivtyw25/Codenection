@@ -44,6 +44,7 @@
  */
 import type { RecoveryMeta, Task, VitalId, VitalReading } from '@/types';
 import { RECOVERY_CATEGORY } from './categories';
+import { formatEstimate } from './format';
 import { DAY_END_HOUR } from './schedule';
 
 /** Icons the recovery rows may render. Keeps the catalogue free of lucide. */
@@ -315,6 +316,128 @@ export function suggestRecovery(
     .slice(0, limit);
 }
 
+
+// ── Why this one, and why now ───────────────────────────────────────────────
+
+/**
+ * What a day already has on it. Supplied by the caller from the real schedule.
+ */
+export interface DayLoad {
+  blocks: number;
+  minutes: number;
+}
+
+/**
+ * The case for one suggestion, pinned to a date.
+ *
+ * ── Why a suggestion needs a date at all ───────────────────────────────────
+ *
+ * The rows used to say what they were for ("Rest 38/75") and what they would
+ * buy ("+8"), and both of those are true and neither is an argument. A student
+ * looking at a list of four wholesome activities on the worst evening of their
+ * week is not short of information about rest; they are short of a reason to
+ * believe this particular block is worth the forty minutes it costs, tonight.
+ *
+ * The reason exists and the app already computes it: `projectVital` knows where
+ * this sub-stat is heading, and the scheduler knows exactly how loaded each of
+ * those days is. Thursday is the day the reserve bottoms out AND the day with
+ * five hours of coursework on it — that conjunction is the whole argument, and
+ * it was sitting in two different modules with nothing joining them up.
+ *
+ * ── What it will not do ────────────────────────────────────────────────────
+ *
+ * It does not manufacture a crisis. If the projection never goes under the
+ * student's own mark, the text says the smaller true thing (this stat is under
+ * today, nothing on the plan moves it) rather than inventing a future dip to
+ * justify the row. A wellbeing app that learns to sell by forecasting doom is
+ * one nobody should install.
+ */
+export interface RecoveryCase {
+  /** ISO date of the lowest projected day, or null if it never dips under. */
+  dipAt: string | null;
+  /** Where the sub-stat lands on that day. */
+  dipValue: number;
+  /** What that day already carries, from the real schedule. */
+  load: DayLoad;
+  /** The sentence shown under the suggestion. */
+  text: string;
+}
+
+/**
+ * Build the case.
+ *
+ * `projection` is `projectVital`'s output for this sub-stat — the line that
+ * already bends when a recovery block is accepted, which is what makes this
+ * honest: the dip being quoted is the dip the student can see on the sub-stat's
+ * own page, and it will be visibly shallower after they agree to this.
+ */
+export function recoveryCase(
+  suggestion: RecoverySuggestion,
+  projection: { date: string; value: number }[],
+  dayLoad: Map<string, DayLoad>,
+  dayName: (iso: string) => string,
+): RecoveryCase {
+  const { reading, action } = suggestion;
+  const empty: DayLoad = { blocks: 0, minutes: 0 };
+
+  /*
+   * The day the argument is about.
+   *
+   * NOT simply the lowest point. These projections decline, so the minimum is
+   * almost always the last day of the window — and "your reserve will be at its
+   * lowest a week from now" is true of every declining line ever drawn. It is
+   * not a reason to do anything on Tuesday.
+   *
+   * The day worth naming is the one where being low MEETS being busy: under the
+   * student's own mark, on a date their plan has already filled. That is the
+   * conjunction that actually hurts, it is the one they can still do something
+   * about, and it is the only version of this sentence that says something the
+   * student could not have guessed. Thirty minutes of scheduled work is scored
+   * as worth about one point of shortfall — enough that a genuinely loaded day
+   * outranks a slightly deeper dip on an empty one, not so much that load alone
+   * picks the day.
+   */
+  const dips = projection.filter((d) => d.value < reading.target);
+  const worst = dips.reduce<{ date: string; value: number } | null>((best, day) => {
+    if (best == null) return day;
+    const score = (d: { date: string; value: number }) =>
+      reading.target - d.value + (dayLoad.get(d.date.slice(0, 10))?.minutes ?? 0) / 30;
+    return score(day) > score(best) ? day : best;
+  }, null);
+
+  if (!worst) {
+    return {
+      dipAt: null,
+      dipValue: reading.value,
+      load: empty,
+      text:
+        `Suggested because ${reading.label} is sitting at ${reading.value} against your own mark of ` +
+        `${reading.target}, and nothing currently on your plan moves it. The forecast does not have it ` +
+        `falling further — this is about closing the gap you already have, not a dip I am predicting.`,
+    };
+  }
+
+  const load = dayLoad.get(worst.date.slice(0, 10)) ?? empty;
+  const under = reading.target - worst.value;
+  const when = dayName(worst.date);
+
+  const because =
+    load.blocks > 0
+      ? `and that is the same day your plan already puts ${load.blocks} ` +
+        `${load.blocks === 1 ? 'block' : 'blocks'} of work on you — ${formatEstimate(load.minutes)} of it`
+      : `and nothing currently on the plan puts anything back before then`;
+
+  return {
+    dipAt: worst.date,
+    dipValue: worst.value,
+    load,
+    text:
+      `Suggested because of ${when}. On current trend your ${reading.label} is projected to reach ` +
+      `${worst.value} that day — ${under} under the ${reading.target} you set for yourself — ${because}. ` +
+      `${action.title} is worth ${suggestion.lift} of those points, banked before the day that needs them ` +
+      `rather than after it.`,
+  };
+}
 
 /** Recovery action ids already committed as open tasks. */
 export function takenActions(tasks: { status: string; recovery?: RecoveryMeta }[]): string[] {

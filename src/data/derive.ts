@@ -27,7 +27,7 @@ import type {
   VitalityModel,
 } from '@/types';
 import { dayOffset, formatEstimate, isOverdue, isToday, isoDate, startOfDay } from './format';
-import { DAY_END_HOUR, DAY_START_HOUR } from './schedule';
+import { DAY_END_HOUR, DAY_START_HOUR, buildSchedule } from './schedule';
 
 // ── Pressure ────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,30 @@ export function openTasks(tasks: Task[]): Task[] {
 
 export function completedOn(tasks: Task[], day: Date): Task[] {
   return tasks.filter((t) => t.completedAt && dayOffset(t.completedAt, day) === 0);
+}
+
+/**
+ * Open work that is past its date, as of `when`.
+ *
+ * ── Why recovery is excluded ───────────────────────────────────────────────
+ *
+ * Because a nap you have not taken yet is not a missed deadline.
+ *
+ * This is not a nicety, it is a bug that was live. Recovery blocks are dated
+ * for today so they cannot drift to never; the scheduler fits them into
+ * whatever gap is left, and on a full day there is no gap, so the block lands
+ * tomorrow morning — past its own date. Every function that counts overdue work
+ * then charged the student eight points of reserve for it, which meant the
+ * forecast got WORSE the moment somebody agreed to rest. The Rebalancer would
+ * propose a walk, the student would accept it, and the days after it would
+ * darken.
+ *
+ * That is the same failure `taskPressure` already refuses — the app must not
+ * make resting expensive — and it is worse here, because the penalty landed on
+ * the exact number the suggestion promised to raise.
+ */
+export function overdueCount(tasks: Task[], when: Date): number {
+  return openTasks(tasks).filter((t) => !t.recovery && isOverdue(t.dueAt, when)).length;
 }
 
 /**
@@ -262,7 +286,7 @@ export function deriveVitality(
   now: Date = new Date(),
   bias = 0,
 ): number {
-  const overdue = openTasks(tasks).filter((t) => isOverdue(t.dueAt, now)).length;
+  const overdue = overdueCount(tasks, now);
   const finishedToday = completedOn(tasks, now).length;
   return clamp(vitalityBase(vitals, model) - overdue * 8 + finishedToday * 3 + bias);
 }
@@ -371,12 +395,32 @@ export function projectVital(
   /** Each further day's slope counts less than the last. */
   const DAMPING = 0.75;
 
-  // Recovery already agreed to, by the ISO date it is due on.
+  /*
+   * Recovery already agreed to, by the day it is due on.
+   *
+   * Only OPEN blocks count: completing one credits the sub-stat for real
+   * (`creditVital`), so a finished nap is already inside `current` and adding it
+   * again here would pay for it twice.
+   *
+   * Anything dated today or earlier is folded onto the first projected day
+   * rather than dropped. `buildRecoveryTask` dates every block for today — on
+   * purpose, because recovery with no date is recovery that happens after
+   * everything else, which means never — so keying strictly on the due date
+   * meant the credit landed on a day the projection does not cover, and NOTHING
+   * the student accepted ever moved the line. That defeats the one claim this
+   * function exists to make: that agreeing to a walk visibly changes where the
+   * week ends up.
+   */
+  const first = startOfDay(now);
+  first.setDate(first.getDate() + 1);
+  const firstKey = isoDate(first);
+
   const credit = new Map<string, number>();
   for (const task of tasks) {
     if (task.status !== 'open' || !task.recovery || task.recovery.vitalId !== id) continue;
     if (!task.dueAt) continue;
-    const key = isoDate(task.dueAt);
+    const due = isoDate(task.dueAt);
+    const key = due < firstKey ? firstKey : due;
     credit.set(key, (credit.get(key) ?? 0) + task.recovery.lift);
   }
 
@@ -397,7 +441,10 @@ export function projectVital(
 
 function pressureNote(tasks: Task[], pressure: number, now: Date): string {
   const open = openTasks(tasks);
-  const overdue = open.filter((t) => isOverdue(t.dueAt, now));
+  // Recovery excluded here too — a walk that slipped past its slot is not one
+  // of the things "carrying most of this", and naming it as overdue would be
+  // the gauge scolding somebody for a block it suggested.
+  const overdue = open.filter((t) => !t.recovery && isOverdue(t.dueAt, now));
   const dueToday = open.filter((t) => t.dueAt && isToday(t.dueAt, now) && !isOverdue(t.dueAt, now));
 
   if (overdue.length > 0) {
@@ -454,6 +501,39 @@ export function deriveCapacity(data: AppData, now: Date = new Date()): Capacity 
 // ── Forecast ────────────────────────────────────────────────────────────────
 
 /**
+ * The task list as it would be with `ids` finished.
+ *
+ * Pulled out of `forecastAhead` when the calendar needed the same operation for
+ * every day of a fortnight rather than once for tomorrow. A task with no steps
+ * is completed by its own id; a task whose last outstanding step is in the set
+ * closes with it, because a plan that finished every step and left the parent
+ * open would have the calendar quietly carrying a task the student can see is
+ * done.
+ */
+export function markDone(tasks: Task[], ids: Iterable<string>, stamp: string): Task[] {
+  const done = new Set(ids);
+
+  return tasks.map((task) => {
+    if (task.status === 'done') return task;
+
+    if (task.subtasks.length === 0) {
+      return done.has(task.id) ? { ...task, status: 'done' as const, completedAt: stamp } : task;
+    }
+
+    const subtasks = task.subtasks.map((s) =>
+      !s.done && done.has(s.id) ? { ...s, done: true, completedAt: stamp } : s,
+    );
+    const all = subtasks.every((s) => s.done);
+    return {
+      ...task,
+      subtasks,
+      status: all ? ('done' as const) : task.status,
+      completedAt: all ? stamp : task.completedAt,
+    };
+  });
+}
+
+/**
  * Where tomorrow lands if today goes to plan.
  *
  * A gauge says where you are. The question a student has at 9am is whether
@@ -473,27 +553,7 @@ export function forecastAhead(
   plannedToday: Iterable<string>,
   now: Date = new Date(),
 ): Forecast {
-  const planned = new Set(plannedToday);
-  const stamp = now.toISOString();
-
-  const projected: Task[] = data.tasks.map((task) => {
-    if (task.status === 'done') return task;
-
-    if (task.subtasks.length === 0) {
-      return planned.has(task.id) ? { ...task, status: 'done', completedAt: stamp } : task;
-    }
-
-    const subtasks = task.subtasks.map((s) =>
-      !s.done && planned.has(s.id) ? { ...s, done: true, completedAt: stamp } : s,
-    );
-    const all = subtasks.every((s) => s.done);
-    return {
-      ...task,
-      subtasks,
-      status: all ? ('done' as const) : task.status,
-      completedAt: all ? stamp : task.completedAt,
-    };
-  });
+  const projected = markDone(data.tasks, plannedToday, now.toISOString());
 
   const tomorrow = startOfDay(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -504,7 +564,7 @@ export function forecastAhead(
   // §5.3: "adjusted downward on days the forecast also shows elevated Pressure,
   // since high-pressure days tend to erode reserve if unaddressed".
   const drag = pressure >= 70 ? 6 : pressure >= 50 ? 3 : 0;
-  const overdue = openTasks(projected).filter((t) => isOverdue(t.dueAt, tomorrow)).length;
+  const overdue = overdueCount(projected, tomorrow);
   const cleared = completedOn(projected, now).length;
   // The learned bias travels with the projection. A forecast built on the raw
   // model while the gauge above it shows the calibrated one would have the two
@@ -525,6 +585,258 @@ export function forecastAhead(
     pressureDelta: pressure - today.pressure,
     vitalityDelta: vitality - today.vitality,
   };
+}
+
+// ── The calendar ────────────────────────────────────────────────────────────
+
+/**
+ * One square on the calendar.
+ *
+ * `known` is the field that keeps this honest. A month grid has thirty-one
+ * cells and this app has never had thirty-one days of anything, so most of the
+ * squares behind today are simply blank — and a calendar that filled them with
+ * a plausible-looking number would be fabricating a past the student could not
+ * remember disagreeing with.
+ */
+export interface DayOutlook {
+  /** ISO date, no time. The key the grid looks up by. */
+  date: string;
+  pressure: number;
+  vitality: number;
+  state: PipStateName;
+  /** There is a reading for this day at all. False for unrecorded past days. */
+  known: boolean;
+  /** It happened: a closed day out of history, or today's live reading. */
+  actual: boolean;
+  today: boolean;
+  /** Blocks the plan puts on that day, and the student's own minutes in them. */
+  blocks: number;
+  plannedMin: number;
+  /** How many of those blocks are recovery rather than work. */
+  recoveryBlocks: number;
+  /** Tasks whose deadline lands on that day. */
+  dueCount: number;
+  /** Closed days only — what history recorded. */
+  tasksCompleted: number;
+}
+
+/**
+ * Every day the app has an opinion about, backwards and forwards.
+ *
+ * ── Why a calendar, and why this shape ─────────────────────────────────────
+ *
+ * The tab this replaced plotted the last seven days as bars. It was honest and
+ * it answered a question nobody was asking: a student does not open a wellbeing
+ * app to find out that Tuesday was worse than Monday, they open it to find out
+ * which day this week is going to hurt. The whole model is already forward
+ * looking — the scheduler knows what lands when, `projectVital` knows where the
+ * reserve is heading — and none of that was ever drawn on a date.
+ *
+ * So the same two numbers are now shown on a grid of days, past and future in
+ * one surface, with the line between them marked rather than hidden. Which is
+ * the second reason for the shape: the only dishonest way to draw this would be
+ * to make a forecast look like a record. `actual` is what the cell needs to
+ * render the difference, and the screen is required to use it.
+ *
+ * ── How the forward days are computed ──────────────────────────────────────
+ *
+ * Not extrapolated. Walked.
+ *
+ * PRESSURE: for each day ahead, everything the scheduler placed on an EARLIER
+ * day is marked done, and the real `derivePressure` is run against that list at
+ * that day's 8am. So the line falls as planned work is assumed completed and
+ * rises as untouched deadlines close in — both of which are facts about the
+ * student's actual plan, not a trend fitted to the last few days.
+ *
+ * VITALITY: each sub-stat is projected by `projectVital` — the same function
+ * the sub-stat pages draw, including the lift from recovery blocks already
+ * accepted — and the four are recombined through the user's own weights, minus
+ * the toll of anything still overdue on that day, minus the same high-pressure
+ * drag `forecastAhead` applies, plus whatever the check-ins have taught the
+ * model. It is the existing machinery on a date axis, not a second model.
+ *
+ * The consequence worth having: accept a run on Thursday and Thursday's square
+ * changes colour. That is the app showing its own advice working, on the
+ * surface where the student is looking for the bad day.
+ */
+/**
+ * How far ahead the app is willing to claim anything.
+ *
+ * Three weeks. The scheduler only plans seven days, `projectVital` damps its
+ * slope to nothing not long after that, and past about a fortnight the honest
+ * description of any of these numbers is "we do not know". A calendar can be
+ * scrolled to next March; the readings must stop well before the scrolling
+ * does, and a blank square is the correct thing to show beyond here — an app
+ * that will draw you a pressure figure for a day five weeks out is one that
+ * will draw you anything.
+ */
+export const FORECAST_DAYS = 21;
+
+export function outlook(
+  data: AppData,
+  now: Date = new Date(),
+  window: { back?: number; forward?: number } = {},
+): DayOutlook[] {
+  const back = window.back ?? 31;
+  const forward = window.forward ?? 31;
+  const bias = data.calibration?.vitalityBias ?? 0;
+
+  // What the plan puts on each day, from the one schedule the app reads.
+  const schedule = buildSchedule(data.tasks, now);
+  const recovery = new Set(data.tasks.filter((t) => t.recovery).map((t) => t.id));
+  const byDay = new Map<string, { ids: string[]; blocks: number; minutes: number; rest: number }>();
+  for (const slot of schedule.values()) {
+    if (!slot.startAt) continue;
+    const key = isoDate(slot.startAt);
+    const day = byDay.get(key) ?? { ids: [], blocks: 0, minutes: 0, rest: 0 };
+    day.ids.push(slot.subId);
+    day.blocks += 1;
+    if (!slot.delegatedTo) day.minutes += slot.estimateMin;
+    if (recovery.has(slot.taskId)) day.rest += 1;
+    byDay.set(key, day);
+  }
+
+  const due = new Map<string, number>();
+  for (const task of openTasks(data.tasks)) {
+    if (!task.dueAt) continue;
+    const key = isoDate(task.dueAt);
+    due.set(key, (due.get(key) ?? 0) + 1);
+  }
+
+  // Each sub-stat's own forward line, keyed by the day it lands on.
+  const projected = new Map<VitalId, Map<string, number>>();
+  for (const id of VITAL_ORDER) {
+    const line = projectVital(
+      id,
+      vitalSeries(id, data.vitals, data.history),
+      data.tasks,
+      Math.min(forward, FORECAST_DAYS),
+      now,
+    );
+    projected.set(id, new Map(line.map((d) => [isoDate(d.date), d.value])));
+  }
+
+  const history = new Map(data.history.map((d) => [isoDate(d.date), d]));
+  const today = deriveCapacity(data, now);
+  const out: DayOutlook[] = [];
+
+  // ── Behind ────────────────────────────────────────────────────────────────
+  for (let d = back; d >= 1; d--) {
+    const day = startOfDay(now);
+    day.setDate(day.getDate() - d);
+    const key = isoDate(day);
+    const record = history.get(key);
+
+    out.push({
+      date: key,
+      pressure: record?.pressure ?? 0,
+      vitality: record?.vitality ?? 0,
+      state: record?.state ?? 'balanced',
+      known: record != null,
+      actual: true,
+      today: false,
+      blocks: 0,
+      plannedMin: 0,
+      recoveryBlocks: 0,
+      dueCount: 0,
+      tasksCompleted: record?.tasksCompleted ?? 0,
+    });
+  }
+
+  // ── Today ─────────────────────────────────────────────────────────────────
+  const todayKey = isoDate(now);
+  const todayLoad = byDay.get(todayKey);
+  out.push({
+    date: todayKey,
+    pressure: today.pressure,
+    vitality: today.vitality,
+    state: derivePipState(today).name,
+    known: true,
+    actual: true,
+    today: true,
+    blocks: todayLoad?.blocks ?? 0,
+    plannedMin: todayLoad?.minutes ?? 0,
+    recoveryBlocks: todayLoad?.rest ?? 0,
+    dueCount: due.get(todayKey) ?? 0,
+    tasksCompleted: completedOn(data.tasks, now).length,
+  });
+
+  // ── Ahead ─────────────────────────────────────────────────────────────────
+  /*
+   * Carried forward, day by day.
+   *
+   * `finished` accumulates every block the schedule placed on a day already
+   * walked past, which is what makes the forward line a consequence of the
+   * plan rather than a curve. Delegated blocks are included: they are going to
+   * be done, just not by the student, and the pressure model has already
+   * stopped counting them as theirs.
+   */
+  const finished: string[] = [...(todayLoad?.ids ?? [])];
+  const stamp = now.toISOString();
+
+  for (let d = 1; d <= forward; d++) {
+    const day = startOfDay(now);
+    day.setDate(day.getDate() + d);
+    const key = isoDate(day);
+
+    // Past the horizon the grid still needs its squares, but they are blanks.
+    if (d > FORECAST_DAYS) {
+      out.push({
+        date: key,
+        pressure: 0,
+        vitality: 0,
+        state: 'balanced',
+        known: false,
+        actual: false,
+        today: false,
+        blocks: 0,
+        plannedMin: 0,
+        recoveryBlocks: 0,
+        dueCount: due.get(key) ?? 0,
+        tasksCompleted: 0,
+      });
+      continue;
+    }
+
+    const morning = new Date(day);
+    morning.setHours(DAY_START_HOUR, 0, 0, 0);
+
+    const tasks = markDone(data.tasks, finished, stamp);
+    const pressure = derivePressure(tasks, morning);
+
+    const vitals: Vital[] = data.vitals.map((v) => ({
+      ...v,
+      value: projected.get(v.id)?.get(key) ?? v.value,
+    }));
+    const overdue = overdueCount(tasks, morning);
+    // §5.3's drag, and the same thresholds `forecastAhead` uses — a heavy day
+    // erodes the reserve, and the two forward-looking functions in this file
+    // must not disagree about by how much.
+    const drag = pressure >= 70 ? 6 : pressure >= 50 ? 3 : 0;
+    const vitality = clamp(
+      vitalityBase(vitals, data.vitalityModel) - overdue * 8 - drag + bias,
+    );
+
+    const load = byDay.get(key);
+    out.push({
+      date: key,
+      pressure,
+      vitality,
+      state: derivePipState({ pressure, vitality, pressureNote: '', vitalityNote: '' }).name,
+      known: true,
+      actual: false,
+      today: false,
+      blocks: load?.blocks ?? 0,
+      plannedMin: load?.minutes ?? 0,
+      recoveryBlocks: load?.rest ?? 0,
+      dueCount: due.get(key) ?? 0,
+      tasksCompleted: 0,
+    });
+
+    if (load) finished.push(...load.ids);
+  }
+
+  return out;
 }
 
 // ── Pip's state ─────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { Platform, StyleSheet, View } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
-import { BarChart3, CheckSquare, Home, Plus, Scale } from 'lucide-react-native';
+import { CalendarDays, CheckSquare, Home, Plus, Scale } from 'lucide-react-native';
 
 import { useApp } from '@/store/AppStore';
 import { radius, space, type, useScheme } from '@/theme';
@@ -100,12 +100,22 @@ export default function TabsLayout() {
           },
         }}
       />
+      {/*
+        Calendar takes the slot Reflect used to hold.
+
+        Reflect plotted the last seven days as bars — honest, real numbers, and
+        an answer to a question nobody asks. Nobody opens a wellbeing app to
+        find out that Tuesday was worse than Monday; they open it to find out
+        which day this week is going to hurt, and the whole model is already
+        forward-looking enough to say. Same two numbers, put on dates, with the
+        forecast drawn so it can never be mistaken for a record.
+      */}
       <Tabs.Screen
-        name="reflect"
+        name="calendar"
         options={{
-          title: 'Reflect',
+          title: 'Calendar',
           tabBarIcon: ({ color, focused }) => (
-            <BarChart3 size={22} color={color} strokeWidth={focused ? 2.4 : 2} />
+            <CalendarDays size={22} color={color} strokeWidth={focused ? 2.4 : 2} />
           ),
         }}
       />

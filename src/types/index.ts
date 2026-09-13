@@ -601,6 +601,20 @@ export interface CheckIn {
   /** The readings behind `computed`, kept so the record is auditable. */
   pressure: number;
   vitality: number;
+  /**
+   * What the student actually typed, joined into one line.
+   *
+   * Optional because entries written before the check-in became a conversation
+   * have no words behind them — and because the record has to stay valid if a
+   * future check-in is ever answered some other way.
+   *
+   * Kept for the person, not for the model: `biasFrom` reads only `felt` and
+   * `computed`, and nothing in this app parses this string a second time. It
+   * exists so that a reading which later looks strange can be checked against
+   * the sentence that produced it, which is the difference between an
+   * auditable record and a number somebody has to take on trust.
+   */
+  note?: string;
 }
 
 /**

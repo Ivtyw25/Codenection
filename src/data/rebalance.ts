@@ -85,7 +85,38 @@ export interface Move {
    * overdue task, whether or not the arithmetic needed it.
    */
   overdue?: boolean;
+  /**
+   * The reasoning behind the call, in full.
+   *
+   * `reason` is one line and has to fit on the row; this is the paragraph
+   * underneath it, and the two are doing different jobs. `reason` says why this
+   * task; the verdict says what else was on the table and why it lost — which
+   * teammate was considered and rejected, why this got a later date instead of
+   * being let go, why letting go beat another date.
+   *
+   * It exists because a proposal you cannot interrogate is a proposal you can
+   * only obey or ignore. The app is asking a student to put something down on
+   * its say-so, and "trust me" is not an argument — being able to open the row
+   * and read the trade is what makes agreeing to it a decision rather than a
+   * surrender.
+   *
+   * Every number quoted in here is one the engine actually used.
+   */
+  verdict: string;
+  /**
+   * How sure the engine is that this is the right call for THIS task.
+   *
+   * Stated rather than implied, and shown on the row. The relief figure is
+   * exact — it was simulated — but whether a task should be dropped at all is a
+   * judgement over a handful of coarse signals, and presenting a judgement at
+   * the same confidence as an arithmetic result is the way an app earns trust
+   * it should not have.
+   */
+  certainty: Certainty;
 }
+
+/** How sure the engine is about a judgement call. Never about a priced figure. */
+export type Certainty = 'high' | 'medium' | 'low';
 
 export interface RebalancePlan {
   /** Pressure now. */
@@ -216,6 +247,164 @@ function priceOf(tasks: Task[], move: Move, now: Date): number {
   return Math.max(0, before - after);
 }
 
+/**
+ * The work the Rebalancer is allowed to touch.
+ *
+ * Open tasks, minus recovery blocks. A nap is not a commitment to be triaged —
+ * it is the output of the other half of this very screen, and proposing to
+ * postpone, delegate or drop it would have the app arguing with its own advice.
+ * Worse, the overdue pass guarantees a row for anything past its date, and a
+ * recovery block that did not fit today is past its date by tomorrow morning:
+ * without this filter the scan opens by offering to give your walk "a real
+ * date", which is a sentence no wellbeing app should ever produce.
+ */
+function movable(tasks: Task[]): Task[] {
+  return openTasks(tasks).filter((t) => !t.recovery);
+}
+
+// ── How much this one matters ───────────────────────────────────────────────
+
+/** Where a task sits on the only axis the ladder cannot compute: worth. */
+export type Importance = 'anchor' | 'real' | 'optional';
+
+export interface ImportanceRead {
+  level: Importance;
+  score: number;
+  /** The signals that produced it, phrased so a verdict can quote them. */
+  signals: string[];
+}
+
+/**
+ * Is this actually worth doing?
+ *
+ * ── Why the engine needs an opinion at all ─────────────────────────────────
+ *
+ * The first version of the ladder had none, and it showed. Postpone ran before
+ * drop and claimed every task it could move, so a forgotten library return with
+ * no real deadline got a polite new date and was handed back to the student to
+ * carry for another week — while the screen congratulated itself for relieving
+ * four points. That is not help. It is the app rearranging clutter and calling
+ * it a rebalance, and it is exactly the behaviour that teaches somebody their
+ * task list is a place things go to be renamed rather than resolved.
+ *
+ * A student in a bad week does not need their least important commitments
+ * moved. They need to be told, by something that has looked at all of it, that
+ * a few of them were never worth the space. Saying that requires a view on
+ * worth, so this is the view — six coarse signals, all of them facts the
+ * student can see on the task themselves.
+ *
+ * ── Why it stays coarse ────────────────────────────────────────────────────
+ *
+ * Three levels, not a percentage. The signals are blunt (a load label, a date,
+ * a category flag) and dressing their sum up as "importance: 34%" would be
+ * claiming a precision none of them have. Three levels is enough to answer the
+ * only question the ladder asks of it — is this an anchor, is it real work, or
+ * is it something you would not miss — and a level is a thing a person can
+ * disagree with, which a decimal is not.
+ *
+ * ── The asymmetry it is built around ───────────────────────────────────────
+ *
+ * `optional` is deliberately hard to reach. Wrongly calling an anchor optional
+ * would have the app suggesting somebody drop their midterm; wrongly calling an
+ * optional task real only means it gets offered a later date instead. The two
+ * mistakes do not cost the same, so the thresholds are not symmetric — anything
+ * with progress on it, a near deadline, or a high-load label is out of reach of
+ * `optional` on that signal alone.
+ */
+export function importanceOf(
+  task: Task,
+  categories: Category[],
+  now: Date = new Date(),
+): ImportanceRead {
+  const signals: string[] = [];
+  let score = 0;
+
+  // What the student themselves called it. The single strongest signal here,
+  // because it is the one they set by hand.
+  if (task.load === 'high') {
+    score += 3;
+    signals.push('you filed it as high load');
+  } else if (task.load === 'medium') {
+    score += 1;
+  } else {
+    score -= 1;
+    signals.push('you filed it as low load');
+  }
+
+  const off = task.dueAt ? dayOffset(task.dueAt, now) : null;
+  if (off == null) {
+    score -= 1;
+    signals.push('it has no date on it at all');
+  } else if (off <= 3) {
+    score += 2;
+    signals.push(`it is due within ${off <= 1 ? 'a day' : 'three days'}`);
+  } else if (off <= 7) {
+    score += 1;
+  }
+
+  // A category the user marked shareable is, by their own definition, work that
+  // does not require them specifically.
+  if (findCategory(categories, task.categoryId)?.shareable) {
+    score -= 1;
+    signals.push('it is filed under work you have said anyone could do');
+  } else {
+    score += 1;
+  }
+
+  const times = task.postponeCount ?? 0;
+  if (times > 0) {
+    score -= Math.min(3, times * 2);
+    signals.push(`you have already moved it ${times === 1 ? 'once' : `${times} times`}`);
+  }
+
+  if (task.estimateMin <= 20) {
+    score -= 1;
+    signals.push(`it is ${formatEstimate(task.estimateMin)} of work`);
+  } else if (task.estimateMin >= 90) {
+    score += 1;
+  }
+
+  // Sunk work counts. Throwing away three finished steps to save the fourth is
+  // a worse trade than it looks, and the student can see the progress bar.
+  const done = task.subtasks.filter((sub) => sub.done).length;
+  if (done > 0) {
+    score += 2;
+    signals.push(`you are ${done} of ${task.subtasks.length} steps into it`);
+  }
+
+  /*
+   * Three vetoes on `optional`, applied after the sum.
+   *
+   * The scoring is additive, which means enough small negatives can out-vote
+   * one large positive — and the first run of this function proved that is not
+   * acceptable here. "Buy groceries", due tomorrow, came out at −1 and was duly
+   * offered up for dropping, because low load and a shareable category
+   * outweighed the deadline. Proposing somebody abandon a commitment that
+   * resolves tomorrow is exactly the kind of confidently stupid suggestion that
+   * ends an app's credibility in one screen.
+   *
+   * So a near deadline, work already begun, and the student's own high-load
+   * label are each enough on their own to put a task out of reach of
+   * `optional`, whatever the arithmetic says. The asymmetry is deliberate:
+   * wrongly calling something real costs a later date, wrongly calling
+   * something optional costs the student the thing itself.
+   */
+  const imminent = off != null && off <= 2;
+  const begun = done > 0;
+  const floored = imminent || begun || task.load === 'high';
+
+  const level: Importance =
+    score >= 4 ? 'anchor' : score >= 1 || floored ? 'real' : 'optional';
+  return { level, score, signals };
+}
+
+/** The signal list as a sentence fragment: "a, b and c". */
+function listOf(signals: string[]): string {
+  if (signals.length === 0) return 'nothing in particular stood out about it';
+  if (signals.length === 1) return signals[0];
+  return `${signals.slice(0, -1).join(', ')} and ${signals[signals.length - 1]}`;
+}
+
 // ── Candidate generation ────────────────────────────────────────────────────
 
 /**
@@ -252,7 +441,7 @@ function delegateCandidates(tasks: Task[], teammates: Teammate[], categories: Ca
   // Round-robin, so a single obliging friend does not collect the whole week.
   let next = 0;
 
-  for (const task of openTasks(tasks)) {
+  for (const task of movable(tasks)) {
     for (const sub of task.subtasks) {
       if (sub.done || sub.delegatedTo) continue;
       if (!isDelegable(task, sub, categories)) continue;
@@ -265,6 +454,8 @@ function delegateCandidates(tasks: Task[], teammates: Teammate[], categories: Ca
       const mate = available[next % available.length];
       next += 1;
 
+      const others = task.subtasks.filter((s) => !s.done && s.id !== sub.id).length;
+
       moves.push({
         id: `mv_del_${sub.id}`,
         lever: 'delegate',
@@ -275,6 +466,21 @@ function delegateCandidates(tasks: Task[], teammates: Teammate[], categories: Ca
         cost: 'Someone else’s time — they have room this week.',
         relief: 0,
         toTeammate: mate.id,
+        verdict:
+          `This is the cheapest kind of move there is, so I looked here first: the work still happens, ` +
+          `it just stops being yours. “${sub.title}” is ${formatEstimate(sub.estimateMin)} of ` +
+          `${categoryLabel(categories, task.categoryId)} work and nothing else in “${task.title}” is waiting on it, ` +
+          `so handing it over cannot stall your own next step — that check is why I did not offer you the ` +
+          `steps further up the chain. ` +
+          `${mate.name} is reading ${mate.state} and has chosen to share that, which is the only reason I am ` +
+          `willing to name them; I do not offer anyone whose own week I cannot see, because a rebalance that ` +
+          `pushes a bad week onto a friend having a worse one is not a rebalance. ` +
+          (others > 0
+            ? `Moving or dropping the whole task was the alternative, and it would have taken ${others} other ` +
+              `${others === 1 ? 'step' : 'steps'} with it that you are perfectly able to do.`
+            : `Dropping the task outright was the alternative, and there is no reason to lose the work when ` +
+              `somebody has room for it.`),
+        certainty: 'high',
       });
     }
   }
@@ -310,13 +516,18 @@ function delegateCandidates(tasks: Task[], teammates: Teammate[], categories: Ca
 function overdueCandidates(tasks: Task[], categories: Category[], now: Date): Move[] {
   const moves: Move[] = [];
 
-  for (const task of openTasks(tasks)) {
+  for (const task of movable(tasks)) {
     if (!isOverdue(task.dueAt, now)) continue;
 
     const lateBy = Math.max(1, -dayOffset(task.dueAt!, now));
     const times = task.postponeCount ?? 0;
     const label = categoryLabel(categories, task.categoryId);
     const late = `${lateBy} ${lateBy === 1 ? 'day' : 'days'} past its date`;
+    // Read here too, even though the rescue pass runs whatever it says. It does
+    // not decide WHETHER this task gets a row — every overdue task gets one —
+    // but it is what the verdict quotes when it explains which of the two
+    // answers the task was given, and why the other one was refused.
+    const importance = importanceOf(task, categories, now);
 
     /*
      * Out of road.
@@ -336,6 +547,16 @@ function overdueCandidates(tasks: Task[], categories: Category[], now: Date): Mo
         reason: `${label} · ${late}, and already moved ${times === 1 ? 'once' : `${times} times`}. A third date would not be believed.`,
         cost: 'This does not get done. That is allowed.',
         relief: 0,
+        verdict:
+          `I gave this one a date twice already and it is ${late} again. That is the pattern I stop at: ` +
+          `a third date would not be a plan, it would be me helping you avoid the decision for another week ` +
+          `while the task keeps weighing what overdue work weighs — which is double anything else you carry. ` +
+          `I also weighed handing it to someone: ${importance.level === 'anchor'
+            ? 'this is anchor work by your own labelling, so passing it on does not make it go away either'
+            : 'nothing here is small or self-contained enough to make that a fair ask'}. ` +
+          `So the honest option left is the one nobody likes. ${listOf(importance.signals)} — ` +
+          `on the evidence, this was never going to happen.`,
+        certainty: 'high',
       });
       continue;
     }
@@ -362,6 +583,19 @@ function overdueCandidates(tasks: Task[], categories: Category[], now: Date): Mo
       // relief and genuinely a deferral, and the row has to carry both.
       cost: 'Still yours to do — it just stops being late.',
       relief: 0,
+      verdict:
+        `Overdue work is the heaviest thing in the model — an item past its date counts for twice what the ` +
+        `same item counts for tomorrow — so this row is worth more than its size suggests. ` +
+        `I put it ${daysOut === 1 ? 'tomorrow' : 'the day after tomorrow'} rather than ` +
+        `${daysOut === 1 ? 'later in the week' : 'tomorrow morning'}: ` +
+        `${daysOut === 1
+          ? 'it is small enough that tomorrow is believable, and a date you believe is the only kind that works'
+          : `it is ${task.load} load at ${formatEstimate(task.estimateMin)}, and promising that on top of a day that is already planned would be a lie`}. ` +
+        `Letting it go was the other option and I did not take it — ${times === 0
+          ? 'you have never moved this one, so it has not earned that yet'
+          : `you have moved it once, which is not yet a pattern`}, ` +
+        `and ${listOf(importance.signals)}.`,
+      certainty: importance.level === 'optional' ? 'medium' : 'high',
     });
   }
 
@@ -371,7 +605,7 @@ function overdueCandidates(tasks: Task[], categories: Category[], now: Date): Mo
 function postponeCandidates(tasks: Task[], categories: Category[], now: Date): Move[] {
   const moves: Move[] = [];
 
-  for (const task of openTasks(tasks)) {
+  for (const task of movable(tasks)) {
     if (!task.dueAt) continue;
     // Overdue work is handled by its own guaranteed pass, which has already
     // proposed something for every one of these. Offering a second, cheaper
@@ -379,6 +613,23 @@ function postponeCandidates(tasks: Task[], categories: Category[], now: Date): M
     if (isOverdue(task.dueAt, now)) continue;
     if ((task.postponeCount ?? 0) >= MAX_POSTPONES) continue;
     if (task.load === 'high') continue; // the hard deadlines stay put
+
+    /*
+     * The worth check, and the reason this rung is no longer the default.
+     *
+     * Postpone used to run before drop and claim everything it could move,
+     * which meant the least important thing a student carried — a low-load,
+     * dateless, twice-moved errand — got a polite new date and came back next
+     * week. Moving something you were never going to do is not relief; it is
+     * the same weight wearing a later date, and it teaches somebody that the
+     * app will rename their problems rather than resolve them.
+     *
+     * So anything the worth read calls `optional` is skipped here and offered
+     * as a drop instead. Not deleted quietly — offered, with the reasoning
+     * shown, and ticked off if the student disagrees.
+     */
+    const importance = importanceOf(task, categories, now);
+    if (importance.level === 'optional') continue;
 
     // Whichever is later: a minimum nudge from where it sits, or clear of the
     // week entirely. The second is what usually does the work.
@@ -411,39 +662,127 @@ function postponeCandidates(tasks: Task[], categories: Category[], now: Date): M
       relief: 0,
       fromDueAt: task.dueAt,
       newDueAt: moved.toISOString(),
+      verdict:
+        `I moved this rather than asking you to let it go, and the reason is worth stating: ` +
+        `${listOf(importance.signals)}. That reads as ${importance.level === 'anchor' ? 'an anchor' : 'real work'} ` +
+        `to me, so dropping it would be me deciding something matters less than you have said it does. ` +
+        `What made it movable is that nothing fixed is holding it where it sits — it is ${task.load} load ` +
+        `with a soft date, so the deadline is a preference rather than a commitment. ` +
+        `The ${days} days are not arbitrary: anything under three buys almost nothing, because work due in two ` +
+        `days and work due in five weigh the same in the model, so a short nudge would have cost you a decision ` +
+        `and returned nothing. This takes it clear of the week that is actually full. ` +
+        (times > 0
+          ? `Note that this is move number ${times + 1}. If it slides again I will stop offering dates and ask ` +
+            `you whether it is real.`
+          : `You have not moved this one before, which is part of why I trust the new date.`),
+      certainty: times > 0 ? 'medium' : 'high',
     });
   }
 
   return moves;
 }
 
-function dropCandidates(tasks: Task[], categories: Category[], now: Date): Move[] {
+/**
+ * Work the student would not miss.
+ *
+ * ── Why this rung moved up the ladder ──────────────────────────────────────
+ *
+ * The ladder is ordered by what a move costs the STUDENT, and "drop" sat at the
+ * bottom of it on the assumption that losing a task is always the most
+ * expensive outcome. That assumption is wrong for a specific and very common
+ * case: a task nobody values. Carrying a dateless, twice-postponed, low-load
+ * errand costs attention every time the list is opened, and what a later date
+ * buys is the privilege of paying that again next week.
+ *
+ * So drops of `optional` work now run BEFORE postpone. For anything the worth
+ * read cannot call real, letting go is the cheaper move, not the dearer one —
+ * and the ladder's whole claim is that it offers the cheapest thing first.
+ *
+ * Nothing is dropped silently. Every row is ticked by default and untickable,
+ * shows what it costs in the same breath as what it saves, and carries the
+ * reasoning that produced it.
+ */
+function dropOptionalCandidates(tasks: Task[], categories: Category[], now: Date): Move[] {
   const moves: Move[] = [];
 
-  for (const task of openTasks(tasks)) {
+  for (const task of movable(tasks)) {
     // Overdue work already has a guaranteed row of its own — including a drop,
     // when it has run out of dates. A second one here would put two
     // contradictory proposals on the same task.
     if (isOverdue(task.dueAt, now)) continue;
 
-    const times = task.postponeCount ?? 0;
-    // Only offer to drop what the student has already shown they keep avoiding,
-    // or what is small enough that carrying it is costing more than doing it.
-    const keepsSliding = times >= MAX_POSTPONES;
-    const lowStakes = task.load === 'low';
-    if (!keepsSliding && !lowStakes) continue;
+    const importance = importanceOf(task, categories, now);
+    if (importance.level !== 'optional') continue;
+    // A task that has slid its full allowance is a different argument, made
+    // below — that one is about a pattern, this one is about worth.
+    if ((task.postponeCount ?? 0) >= MAX_POSTPONES) continue;
 
     moves.push({
       id: `mv_drop_${task.id}`,
       lever: 'drop',
       taskId: task.id,
       title: `Let go of “${task.title}”`,
-      reason: keepsSliding
-        ? `Moved ${times} times. It is not going to happen this week.`
-        : `${categoryLabel(categories, task.categoryId)} · low stakes, and it is still taking up room.`,
+      reason: `${categoryLabel(categories, task.categoryId)} · the least important thing you are carrying, and it is still taking up room.`,
       // The one lever with a cost worth stating plainly rather than softening.
       cost: 'This does not get done. That is allowed.',
       relief: 0,
+      verdict:
+        `I am proposing you drop this rather than move it, which is the harder suggestion, so here is the ` +
+        `whole argument. I scored everything open on six things — how you labelled it, whether a date is ` +
+        `holding it, whether it is work only you can do, how often it has already moved, how big it is, and ` +
+        `how far into it you are. This one came out at the bottom: ${listOf(importance.signals)}. ` +
+        `A later date would not fix any of that. It would hand the same task back to you next week with a new ` +
+        `number on it, and you would spend the seven days in between seeing it on the list — which is the ` +
+        `actual cost of carrying something you are not going to do. ` +
+        `If I have this wrong, untick it and it stays exactly as it is. You labelled this task, so you are ` +
+        `better placed than I am to say whether it matters.`,
+      // A judgement, and said to be one. The relief figure beside it is exact;
+      // this is six coarse signals about someone else's life.
+      certainty: importance.score <= -2 ? 'high' : 'medium',
+    });
+  }
+
+  return moves;
+}
+
+/**
+ * Work that keeps sliding.
+ *
+ * A different argument from the one above, and it runs at the bottom of the
+ * ladder where drops used to live. This is not about whether the task is worth
+ * doing — it may well be — it is about a pattern the student has already
+ * demonstrated. Something moved its full allowance and still not started is not
+ * waiting for a better date.
+ */
+function dropStaleCandidates(tasks: Task[], categories: Category[], now: Date): Move[] {
+  const moves: Move[] = [];
+
+  for (const task of movable(tasks)) {
+    if (isOverdue(task.dueAt, now)) continue;
+
+    const times = task.postponeCount ?? 0;
+    if (times < MAX_POSTPONES) continue;
+
+    const importance = importanceOf(task, categories, now);
+
+    moves.push({
+      id: `mv_drop_stale_${task.id}`,
+      lever: 'drop',
+      taskId: task.id,
+      title: `Let go of “${task.title}”`,
+      reason: `${categoryLabel(categories, task.categoryId)} · moved ${times} times. It is not going to happen this week.`,
+      cost: 'This does not get done. That is allowed.',
+      relief: 0,
+      verdict:
+        `This is not a judgement about whether the task matters — ${listOf(importance.signals)} — it is about ` +
+        `what has actually happened to it. You have given it ${times} dates and it has not started. ` +
+        `At that point another date is not a plan, it is a way of not deciding, and the app would be helping ` +
+        `you not decide. ` +
+        `I did look for a way to keep it: nothing in it is separable enough to hand to somebody, and moving it ` +
+        `again is the thing that has already failed ${times} times. ` +
+        `So the two honest options are to let it go, or to do it — and if it is the second, untick this and ` +
+        `start it today rather than dating it again.`,
+      certainty: 'medium',
     });
   }
 
@@ -461,7 +800,7 @@ function dropCandidates(tasks: Task[], categories: Category[], now: Date): Move[
  * relief arithmetic entirely.
  */
 function breakdownAid(tasks: Task[], categories: Category[]): Move[] {
-  return openTasks(tasks)
+  return movable(tasks)
     .filter((t) => t.subtasks.length === 0 && t.estimateMin >= 60)
     .map((task) => ({
       id: `mv_brk_${task.id}`,
@@ -471,6 +810,15 @@ function breakdownAid(tasks: Task[], categories: Category[]): Move[] {
       reason: `${formatEstimate(task.estimateMin)} in one undifferentiated block — there is no obvious place to start.`,
       cost: 'Won’t lower the number. Makes it possible to begin.',
       relief: 0,
+      verdict:
+        `I am quoting this at zero because it is worth zero to the number, and I would rather say so than ` +
+        `pad the list with something that looks like progress. Splitting a task does not change how many ` +
+        `minutes it contains, so the gauge will not move. ` +
+        `What it changes is whether you can start: ${formatEstimate(task.estimateMin)} with no internal ` +
+        `structure has no first move in it, and on the days this screen actually gets opened, "where do I even ` +
+        `begin" is more often the blocker than the size of the pile. ` +
+        `It is filed separately from the priced moves for that reason — it is not relief, it is traction.`,
+      certainty: 'medium' as const,
     }));
 }
 
@@ -552,15 +900,31 @@ export function planRebalance(
 
   for (const rescue of rescues) {
     const relief = priceOf(working, rescue, now);
-    chosen.push({ ...rescue, relief });
+    chosen.push({ ...rescue, relief, verdict: `${rescue.verdict} ${pricedLine(relief)}` });
     working = applyMove(working, rescue);
     pressure = derivePressure(working, now);
   }
 
+  /*
+   * The ladder, cheapest-to-the-student first.
+   *
+   * The order changed when the engine learned to have a view on worth. It used
+   * to be delegate → postpone → drop, on the assumption that losing a task is
+   * always the most expensive outcome — which is false for the thing a bad week
+   * is most full of. Dropping something you were never going to do is cheaper
+   * than carrying it for another seven days, so `dropOptional` now sits above
+   * postpone, and postpone in turn declines to touch anything the worth read
+   * called optional. The two rungs no longer compete for the same tasks.
+   *
+   * `dropStale` stays at the bottom, where drops used to live. That one is a
+   * genuinely expensive suggestion — the task may well matter — and it should
+   * only be reached when nothing cheaper was enough.
+   */
   const ladder = [
     ...delegateCandidates(working, teammates, categories),
+    ...dropOptionalCandidates(working, categories, now),
     ...postponeCandidates(working, categories, now),
-    ...dropCandidates(working, categories, now),
+    ...dropStaleCandidates(working, categories, now),
   ];
   /*
    * At most one WHOLE-TASK lever per task.
@@ -593,7 +957,7 @@ export function planRebalance(
     // how a rebalancer becomes theatre.
     if (relief <= 0) continue;
 
-    chosen.push({ ...candidate, relief });
+    chosen.push({ ...candidate, relief, verdict: `${candidate.verdict} ${pricedLine(relief)}` });
     if (candidate.lever === 'postpone' || candidate.lever === 'drop') {
       claimed.add(candidate.taskId);
     }
@@ -613,6 +977,24 @@ export function planRebalance(
     aids,
     note: planNote(chosen, rescues.length, before, after, relieved),
   };
+}
+
+/**
+ * The last line of every verdict: where the number came from.
+ *
+ * Appended at plan time rather than written into each candidate, because it is
+ * the one sentence that is identical for all of them and it is the sentence the
+ * whole file is accountable to. The relief was not estimated or looked up in a
+ * table — the engine built the task list that would exist after the move and
+ * ran the gauge's own function over it. Saying that out loud, on every row, is
+ * what separates this from a wellness app assigning points to things.
+ */
+function pricedLine(relief: number): string {
+  return relief > 0
+    ? `Priced at −${relief} by building the task list this would leave you with and running the same function ` +
+        `the gauge reads over it. That is the number the gauge will move, not an estimate of it.`
+    : `It prices at zero. I ran the gauge's own function over the list this would leave and it came back ` +
+        `unchanged, so I am not going to claim it buys you anything — this row is here for the other reason.`;
 }
 
 /**

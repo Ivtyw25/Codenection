@@ -123,8 +123,8 @@ type Action =
   | { type: 'task/remove'; id: TaskId }
   | { type: 'task/add'; tasks: Task[] }
   | { type: 'rebalance/apply'; moves: Move[]; at: string }
-  | { type: 'recovery/add'; task: Task }
-  | { type: 'checkin/record'; felt: PipStateName; computed: PipStateName; pressure: number; vitality: number; date: string }
+  | { type: 'recovery/add'; tasks: Task[] }
+  | { type: 'checkin/record'; felt: PipStateName; computed: PipStateName; pressure: number; vitality: number; date: string; note?: string }
   | { type: 'category/add'; label: string; icon: IconName }
   | { type: 'category/patch'; id: CategoryId; patch: Partial<Omit<Category, 'id'>> }
   | { type: 'category/archive'; id: CategoryId; on: boolean }
@@ -387,7 +387,17 @@ function reducer(state: AppState, action: Action): AppState {
      * a Tuesday is one that has a block on the rail like everything else.
      */
     case 'recovery/add':
-      return { ...state, data: { ...data, tasks: [...data.tasks, action.task] } };
+      /*
+       * A list, not a task, because recovery is accepted in handfuls.
+       *
+       * The Rebalancer offers up to four blocks aimed at whichever sub-stats
+       * are under their line, and somebody who has just agreed that their week
+       * needs a walk AND an early night should be able to say so once. Adding
+       * them one dispatch at a time would schedule each against a list that did
+       * not yet contain the others, and the times quoted on the rows would stop
+       * being the times they actually land in.
+       */
+      return { ...state, data: { ...data, tasks: [...data.tasks, ...action.tasks] } };
 
     /*
      * The one reading in the app that is not arithmetic.
@@ -407,6 +417,7 @@ function reducer(state: AppState, action: Action): AppState {
             computed: action.computed,
             pressure: action.pressure,
             vitality: action.vitality,
+            note: action.note,
           }),
         },
       };
@@ -596,14 +607,19 @@ export interface AppApi {
   applyRebalance: (moves: Move[]) => void;
 
   /**
-   * Commit a recovery suggestion as a real, scheduled task.
+   * Commit recovery suggestions as real, scheduled tasks.
    *
-   * Returns the task so the caller can route straight into its timer — the
-   * sit-still actions are ones people accept and then immediately want to
-   * start, and making them go and find the row first is where the intention
-   * gets lost.
+   * Takes a LIST because these are accepted in handfuls: a week bad enough to
+   * need the Rebalancer usually has more than one sub-stat under its line, and
+   * a screen that makes you agree to a walk, wait, then agree to an early night
+   * is charging a depleted person twice for one decision.
+   *
+   * Returns the created tasks so the caller can name them in a toast and link
+   * to them. It deliberately does NOT start anything — a recovery block is
+   * started from the task list like any other work, so that agreeing to rest
+   * and choosing to rest right now stay two separate acts.
    */
-  addRecovery: (suggestion: RecoverySuggestion) => Task;
+  addRecovery: (suggestions: RecoverySuggestion[]) => Task[];
 
   /**
    * Log how the day actually felt against what Pip computed.
@@ -611,7 +627,14 @@ export interface AppApi {
    * The only write in the app that teaches the model something it could not
    * have derived. One per day; answering twice corrects rather than appends.
    */
-  recordFeeling: (felt: PipStateName, computed: PipStateName, pressure: number, vitality: number) => void;
+  recordFeeling: (
+    felt: PipStateName,
+    computed: PipStateName,
+    pressure: number,
+    vitality: number,
+    /** What they typed, joined into one line. Kept for the person, not the model. */
+    note?: string,
+  ) => void;
 
   /** Categories are the user's own — they can add, rename and retire them. */
   addCategory: (label: string, icon: IconName) => void;
@@ -788,19 +811,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       applyRebalance: (moves) =>
         dispatch({ type: 'rebalance/apply', moves, at: new Date().toISOString() }),
 
-      addRecovery: (suggestion) => {
-        const task = buildRecoveryTask(suggestion, uid('t'));
-        dispatch({ type: 'recovery/add', task });
-        return task;
+      addRecovery: (suggestions) => {
+        /*
+         * Scheduled together, in one dispatch.
+         *
+         * `buildRecoveryTask` dates each block for today and the planner fits
+         * them into whatever gaps are left; doing that in a single write means
+         * three accepted blocks compete for the afternoon exactly once, rather
+         * than each being planned against a day that does not yet know about
+         * the others.
+         */
+        const tasks = suggestions.map((s) => buildRecoveryTask(s, uid('t')));
+        dispatch({ type: 'recovery/add', tasks });
+        return tasks;
       },
 
-      recordFeeling: (felt, computed, pressure, vitality) =>
+      recordFeeling: (felt, computed, pressure, vitality, note) =>
         dispatch({
           type: 'checkin/record',
           felt,
           computed,
           pressure,
           vitality,
+          note,
           date: isoDate(new Date()),
         }),
 

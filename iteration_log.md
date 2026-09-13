@@ -315,3 +315,86 @@ restorative, feature-complete, free of cognitive friction.
      largest remaining gap against the brief.
 
 ---
+
+### [2026-09-13 21:58:00] — Iteration Cycle #4
+
+- **Focus Area:** Make the end-of-day log a real conversation; stop the
+  Rebalancer abandoning its own second half; teach it to say *drop this* when a
+  task is not worth a later date, and to show its working; replace Reflect with
+  a **Calendar** that puts the forecast on dates.
+
+- **@UserAgent critique & proposals:**
+  - *"The check-in gives me five buttons. I press the one that closes it
+    fastest. You haven't asked me anything — you wrote all five answers."*
+    → The menu is gone. `app/checkin.tsx` is a typed conversation: Pip states
+    its reading and the two numbers behind it, asks how the day landed, reads
+    the reply, asks one thing that follows from it, then asks the question the
+    feature is named after — does the number match. Three turns, free text.
+  - *"I applied the moves and the screen reset. I never saw the rest."*
+    → Apply no longer navigates. It leaves a receipt, the plan shrinks to what
+    is left, and the page scrolls to the recovery blocks — which is the half
+    that raises the reserve the moves above it cannot touch.
+  - *"'Add and start' threw me into a ten-minute timer in the middle of
+    triage."* → Recovery is now ticked in a batch and added to the plan;
+    started from the task list like anything else. Agreeing to rest and
+    choosing to rest right now are two different acts.
+  - *"Why is it moving my library books to next week? I'm never doing that."*
+    → `importanceOf` scores every open task on six visible facts. Work it
+    cannot call real is offered as a **drop** *before* postpone is considered,
+    because carrying something you will not do costs more than losing it.
+  - *"It tells me to drop something and expects me to just agree."*
+    → Every move carries a `verdict`: what else was on the table, why it lost,
+    and a stated confidence — a judgement never dressed as arithmetic.
+  - *"Reflect told me Tuesday was worse than Monday. I knew that."*
+    → Replaced by Calendar. Same two numbers on a grid of days, past and
+    forecast in one surface, with forecast squares drawn so they cannot be
+    mistaken for records.
+
+- **@UXAgent critique & proposals:**
+  - A parser that guesses confidently is worse than one that asks again. The
+    read carries a confidence, hedges out loud when it is low, asks once for
+    more, and falls back to Pip's own guess **while saying so**.
+  - What gets quoted back must be what got scored. "not great" is quoted as
+    *"not great"*, never as *"great"*.
+  - A forecast drawn in a record's ink destroys the record. Recorded days are
+    filled, forecast days outlined and dashed, unrecorded days left blank, and
+    the forecast stops dead at `FORECAST_DAYS = 21`.
+
+- **What the measured run caught (three real bugs, all pre-existing or new):**
+  1. **Agreeing to rest made the forecast worse.** Recovery blocks are dated
+     today; on a full day the scheduler lands them tomorrow morning, past their
+     own date — so every function counting overdue work charged 8 points of
+     reserve for them. Accepting a nap *darkened* the days after it. Fixed by
+     `overdueCount`, which excludes recovery: a nap you have not taken is not a
+     missed deadline. Same class as `taskPressure` pricing recovery at zero.
+  2. **And it never helped either.** `projectVital` keyed its credit strictly
+     on the due date, which for every recovery block is *today* — a day the
+     projection does not cover. Nothing a student accepted ever moved the line,
+     on this screen or on the sub-stat pages. Credit dated today now lands on
+     the first projected day.
+  3. **The worth model offered to drop the groceries.** Additive scoring let
+     low-load + shareable out-vote a deadline one day away. Three vetoes now
+     sit after the sum — an imminent date, work already begun, or the student's
+     own high-load label each put a task out of reach of `optional`. Wrongly
+     calling something real costs a later date; wrongly calling it optional
+     costs them the thing itself.
+
+- **Also fixed:** the Rebalancer could propose giving your walk "a real date".
+  Recovery is now excluded from the ladder entirely (`movable`).
+
+- **Gate:** `tsc --noEmit` clean · `eslint` clean · `npm run verify` 3 suites,
+  all passing (rebalance 42, recovery 28, conversation 47) ·
+  `expo export --platform web` builds.
+
+- **Consensus status:** **Re-looping.** Closed this cycle: the check-in, the
+  Rebalancer's abandoned second half, the drop lever, and Reflect. Outstanding:
+  1. `app/review.tsx` — carried for a fourth cycle, still the densest screen.
+  2. The conversation is read by a lexicon, not a model. That is stated in the
+     file and in the UI's restraint, and `readFeeling` is the single seam a
+     real model would replace — but it will misread slang it has never seen.
+  3. The calendar's forward pressure assumes every planned block gets done on
+     its day. That is the app's own plan, not an optimism this file added, but
+     a week whose work all fits in two days reads as "nothing left on
+     Wednesday", which is true and still startling.
+
+---

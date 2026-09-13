@@ -6,11 +6,15 @@ import * as Haptics from 'expo-haptics';
 import {
   ArrowRight,
   BookOpen,
+  Brain,
   CalendarClock,
   Check,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Coffee,
   Footprints,
+  Heart,
   MessageCircle,
   Moon,
   Radar,
@@ -18,17 +22,17 @@ import {
   Scissors,
   Sparkles,
   Sun,
-  Timer,
+  TrendingDown,
   UserPlus,
   Wind,
   X,
 } from 'lucide-react-native';
 
 import { PipMascot } from '@/components/app';
-import { Button, Card, Checkbox, Chip, EmptyState, Txt } from '@/components/ui';
-import { formatClock, formatDayHeading, formatDueShort, formatEstimate } from '@/data/format';
+import { Button, Card, Checkbox, Chip, EmptyState, Interactive, Txt } from '@/components/ui';
+import { formatClock, formatDayHeading, formatDayName, formatDueShort, formatEstimate } from '@/data/format';
 import { LEVER_COPY, groupByLever, priceSubset, type Move } from '@/data/rebalance';
-import type { RecoveryIcon, RecoverySuggestion } from '@/data/recovery';
+import type { RecoveryIcon } from '@/data/recovery';
 import { useApp } from '@/store/AppStore';
 import {
   useCapacity,
@@ -56,6 +60,13 @@ const RECOVERY_ICON: Record<RecoveryIcon, typeof Check> = {
   MessageCircle,
   Coffee,
   Sun,
+};
+
+/** Said plainly on the row, so a judgement never wears a fact's clothes. */
+const CERTAINTY_TONE: Record<Move['certainty'], 'success' | 'warning' | 'neutral'> = {
+  high: 'success',
+  medium: 'neutral',
+  low: 'warning',
 };
 
 /** How long the scan is held open before results appear. */
@@ -132,6 +143,50 @@ export default function RebalanceScreen() {
    */
   const [rejected, setRejected] = useState<Set<string>>(() => new Set());
 
+  /**
+   * What the last Apply actually did.
+   *
+   * ── Why the screen no longer closes ────────────────────────────────────────
+   *
+   * Applying used to send the student back to the idle state, which quietly
+   * threw away the second half of the screen. A rebalance is two halves — take
+   * things off, put something back — and the taking-off half is the one people
+   * will do, because it is the one that lowers a number. Resetting the moment
+   * that half completed meant the recovery blocks were dismissed by the very
+   * act of agreeing with everything above them, and a student could run the
+   * full plan every week and never once be offered rest.
+   *
+   * So Apply now stays put, states what it did, and hands the attention
+   * downward. Nothing about the plan is stale: it is derived live, so the moves
+   * that were applied simply stop being proposed a frame later.
+   */
+  const [applied, setApplied] = useState<{ moves: number; relief: number } | null>(null);
+
+  /**
+   * Recovery blocks the student has ticked but not yet committed.
+   *
+   * Starts EMPTY, which is the opposite of how the moves above default, and the
+   * asymmetry is deliberate. A move takes something off the plan, so
+   * pre-accepting it hands a depleted person a set of vetoes rather than a set
+   * of decisions. A recovery block puts forty minutes ON the plan — pre-ticking
+   * four of those would be the app committing two and a half hours of somebody
+   * else's evening on their behalf, which is not the same act at all.
+   */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+
+  /** Which move has its reasoning open. One at a time — this is a long screen. */
+  const [reasoning, setReasoning] = useState<string | null>(null);
+
+  /*
+   * Where the recovery section starts, and the scroller that can get there.
+   *
+   * Saying "the blocks further down are the other half" and leaving somebody at
+   * the top of a long screen is the same failure as navigating away, only
+   * politer. After an apply the page takes them there.
+   */
+  const scroller = useRef<ScrollView>(null);
+  const recoveryTop = useRef(0);
+
   const accepted = useMemo(
     () => plan.moves.filter((m) => !rejected.has(m.id)),
     [plan.moves, rejected],
@@ -167,6 +222,9 @@ export default function RebalanceScreen() {
   const scan = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setRejected(new Set());
+    setPicked(new Set());
+    setApplied(null);
+    setReasoning(null);
     setPhase('scanning');
     timer.current = setTimeout(() => setPhase('results'), SCAN_MS);
   }, []);
@@ -181,34 +239,80 @@ export default function RebalanceScreen() {
     });
   };
 
+  /**
+   * Apply, and stay.
+   *
+   * The moves are committed and the screen keeps its place. What it shows a
+   * frame later is a smaller plan — the applied moves are gone because the plan
+   * is derived from the task list they just changed — plus a receipt and the
+   * recovery section, which is the half of the rebalance nobody reaches if this
+   * function navigates.
+   */
   const commit = () => {
     if (accepted.length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    const moves = accepted.length;
+    const saved = relief;
     applyRebalance(accepted);
-    toast(
-      `${accepted.length} ${accepted.length === 1 ? 'move' : 'moves'} applied · −${relief} pressure`,
-      'success',
+    setApplied((prev) => ({
+      moves: (prev?.moves ?? 0) + moves,
+      relief: (prev?.relief ?? 0) + saved,
+    }));
+    setRejected(new Set());
+    setReasoning(null);
+    toast(`${moves} ${moves === 1 ? 'move' : 'moves'} applied · −${saved} pressure`, 'success');
+    // A beat, so the receipt and the shorter plan have rendered before the
+    // page moves — scrolling to a position measured against the old layout
+    // lands somewhere arbitrary.
+    setTimeout(
+      () => scroller.current?.scrollTo({ y: Math.max(0, recoveryTop.current - 80), animated: true }),
+      320,
     );
-    setPhase('idle');
   };
 
-  const commitRecovery = (suggestion: RecoverySuggestion) => {
+  /**
+   * Commit every ticked recovery block at once.
+   *
+   * ── Why it adds and does not start ─────────────────────────────────────────
+   *
+   * The timed actions used to open their timer the instant they were accepted,
+   * on the argument that somebody who has just agreed to sit still for ten
+   * minutes is as willing as they will ever be. That argument was wrong about
+   * where it was being made. This is the screen where a student is triaging a
+   * week that has gone over; being dropped into a ten-minute countdown mid-triage
+   * ends the triage, and the other three things they were about to agree to
+   * never happen.
+   *
+   * Agreeing to rest and choosing to rest right now are two different acts. This
+   * does the first: the blocks land on the plan with their times, and they are
+   * started from the task list like everything else — which is also where the
+   * student will be when they actually have ten minutes.
+   */
+  const commitRecovery = () => {
+    const chosen = recovery.filter((r) => picked.has(r.action.id));
+    if (chosen.length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    const task = addRecovery(suggestion);
-    /*
-     * Timed actions go straight into the timer.
-     *
-     * Somebody who has just agreed to sit still for ten minutes is, right now,
-     * as willing as they are ever going to be. Making them find the row on a
-     * list first is where that willingness goes to die.
-     */
-    if (task.recovery?.timerSec) {
-      router.push({ pathname: '/timer/[id]', params: { id: task.id } });
-      return;
-    }
-    toast(`“${suggestion.action.title}” added to today`, 'success', {
-      label: 'Open',
-      run: () => router.push(`/task/${task.id}`),
+    const tasks = addRecovery(chosen);
+    setPicked(new Set());
+    toast(
+      `${tasks.length} ${tasks.length === 1 ? 'block' : 'blocks'} added to your plan · start ${tasks.length === 1 ? 'it' : 'them'} from Tasks`,
+      'success',
+      { label: 'Open tasks', run: () => router.push('/tasks') },
+    );
+  };
+
+  /** What the current ticks would actually cost in time. Shown on the button. */
+  const pickedMinutes = recovery
+    .filter((r) => picked.has(r.action.id))
+    .reduce((sum, r) => sum + r.action.minutes, 0);
+
+  const togglePicked = (id: string) => {
+    Haptics.selectionAsync().catch(() => {});
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
 
@@ -221,6 +325,7 @@ export default function RebalanceScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: scheme.ground }}>
       <ScrollView
+        ref={scroller}
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + space[4] }]}
         showsVerticalScrollIndicator={false}
       >
@@ -232,6 +337,34 @@ export default function RebalanceScreen() {
           <ScanningState />
         ) : (
           <>
+            {/*
+              ── What you just did ────────────────────────────────────────────
+
+              Sits above the remaining plan rather than replacing it, and says
+              out loud that the job is half finished. The line about the reserve
+              is the whole reason this screen no longer navigates away: taking
+              work off lowers Pressure and does nothing at all for Vitality, and
+              a student who ran the plan and left would have a lighter week and
+              exactly the same empty tank.
+            */}
+            {applied ? (
+              <Card
+                style={[styles.applied, { borderColor: status.success.solid, backgroundColor: status.success.bg }]}
+              >
+                <View style={styles.appliedHead}>
+                  <Check size={16} color={status.success.solid} />
+                  <Txt variant="h4" color={status.success.fg} style={{ flex: 1 }}>
+                    {applied.moves} {applied.moves === 1 ? 'move' : 'moves'} applied · −{applied.relief} pressure
+                  </Txt>
+                </View>
+                <Txt variant="bodySm" color={status.success.fg}>
+                  That is the subtracting half done. Your reserve is still {capacity.vitality} — nothing above
+                  moved it, because taking work off a week does not put anything back into the person carrying
+                  it. The blocks further down are the other half.
+                </Txt>
+              </Card>
+            ) : null}
+
             {/* ── The read ──────────────────────────────────────────────── */}
             <Card style={styles.intro}>
               <View style={styles.introHead}>
@@ -277,6 +410,10 @@ export default function RebalanceScreen() {
                         now={now}
                         accepted={!rejected.has(move.id)}
                         onToggle={() => toggle(move.id)}
+                        open={reasoning === move.id}
+                        onToggleReasoning={() =>
+                          setReasoning((current) => (current === move.id ? null : move.id))
+                        }
                       />
                     ))}
                   </View>
@@ -354,12 +491,20 @@ export default function RebalanceScreen() {
             ) : null}
 
             {/* ── Putting something back ────────────────────────────────── */}
-            <View style={styles.group}>
+            <View
+              style={styles.group}
+              onLayout={(e) => {
+                recoveryTop.current = e.nativeEvent.layout.y;
+              }}
+            >
               <View style={styles.groupHead}>
-                <Txt variant="h4">Build the reserve back</Txt>
+                <View style={styles.recoveryTitle}>
+                  <Heart size={15} color={status.success.solid} />
+                  <Txt variant="h4">Build the reserve back</Txt>
+                </View>
                 <Txt variant="caption" muted>
                   {recovery.length > 0
-                    ? 'Aimed at the sub-stats currently under their line. Adding one puts a real block on today — it costs time, and no pressure.'
+                    ? 'Aimed at the sub-stats currently under their line, and dated against the days your plan says will be worst. Tick as many as you want — each one costs time and no pressure.'
                     : 'Nothing to suggest — every sub-stat is above the level it needs to hold.'}
                 </Txt>
               </View>
@@ -369,9 +514,40 @@ export default function RebalanceScreen() {
                   key={suggestion.action.id}
                   suggestion={suggestion}
                   now={now}
-                  onAdd={() => commitRecovery(suggestion)}
+                  picked={picked.has(suggestion.action.id)}
+                  onToggle={() => togglePicked(suggestion.action.id)}
                 />
               ))}
+
+              {/*
+                One button for the lot.
+
+                These used to carry an Add on every card, which meant a week bad
+                enough to need three of them cost three separate commitments,
+                each one a fresh chance to decide that resting is indulgent.
+                Ticking is cheap; the decision is made once, at the bottom.
+              */}
+              {recovery.length > 0 ? (
+                <Button
+                  label={
+                    picked.size === 0
+                      ? 'Pick what to put back'
+                      : `Add ${picked.size} to my plan · ${formatEstimate(pickedMinutes)}`
+                  }
+                  variant={picked.size === 0 ? 'secondary' : 'primary'}
+                  fullWidth
+                  disabled={picked.size === 0}
+                  disabledReason="Tick at least one block above"
+                  icon={
+                    <Heart
+                      size={15}
+                      color={picked.size === 0 ? scheme.textDisabled : scheme.onPrimary}
+                    />
+                  }
+                  onPress={commitRecovery}
+                  accessibilityHint="Schedules them on the days shown. They are started from your task list, like any other block."
+                />
+              ) : null}
             </View>
 
             <Button
@@ -473,30 +649,43 @@ function ScanningState() {
 /**
  * One recovery suggestion.
  *
- * The lift is shown as a plus against the sub-stat it lands on, never as a
- * total wellbeing gain, and it is the capped figure — what this would actually
- * deliver given how far under the stat currently is. Promising a nap would take
- * Rest from 38 to 80 is the kind of thing tomorrow's reading catches the app
- * out on, and this is the last screen in the app that can afford to be caught.
+ * ── What changed, and why ──────────────────────────────────────────────────
+ *
+ * The row used to say what it lifts and when it would happen, both true, and
+ * neither of them an argument. A tired student looking at four wholesome
+ * activities does not need to be told that walking is good for them; they need
+ * a reason to believe this particular forty minutes is worth spending, tonight,
+ * when everything else on the screen is about having too much to do.
+ *
+ * The reason exists and the app already computed it. `why` names the day this
+ * sub-stat is projected to bottom out, what it bottoms out at, and what the
+ * plan already puts on that day — so the row argues from the student's own
+ * week rather than from general principles about wellbeing.
+ *
+ * The lift is still shown as a plus against one sub-stat and still the CAPPED
+ * figure — what this would actually deliver given how far under the stat is.
+ * Promising a nap would take Rest from 38 to 80 is the kind of thing tomorrow's
+ * reading catches the app out on.
  */
 function RecoveryRow({
   suggestion,
   now,
-  onAdd,
+  picked,
+  onToggle,
 }: {
   suggestion: PlannedRecovery;
   now: Date;
-  onAdd: () => void;
+  picked: boolean;
+  onToggle: () => void;
 }) {
   const scheme = useScheme();
   const Icon = RECOVERY_ICON[suggestion.action.icon];
-  const timed = suggestion.action.timerSec != null;
 
   /*
    * The slot, from the real scheduler.
    *
-   * "Add to today" is a promise about a day that may already be full, and a row
-   * that made it without checking would be the one piece of this screen not
+   * "Add to my plan" is a promise about a day that may already be full, and a
+   * row that made it without checking would be the one piece of this screen not
    * priced against reality. `plannedAt` comes from running the actual planner
    * over the actual task that would be created.
    */
@@ -505,8 +694,13 @@ function RecoveryRow({
     : 'no room left today';
 
   return (
-    <Card style={styles.recovery}>
+    <Card style={[styles.recovery, picked && { borderColor: status.success.solid, borderWidth: 1 }]}>
       <View style={styles.recoveryHead}>
+        <Checkbox
+          checked={picked}
+          onToggle={onToggle}
+          accessibilityLabel={`${picked ? 'Picked' : 'Not picked'}. ${suggestion.action.title}. ${suggestion.why.text} Takes ${formatEstimate(suggestion.action.minutes)}, scheduled ${when.toLowerCase()}.`}
+        />
         <View style={[styles.recoveryIcon, { backgroundColor: status.success.bg }]}>
           <Icon size={16} color={status.success.solid} />
         </View>
@@ -521,6 +715,17 @@ function RecoveryRow({
         </Txt>
       </View>
 
+      {/*
+        The dated case. Shown open rather than behind a disclosure, because it
+        is the only part of this card that answers "why would I".
+      */}
+      <View style={[styles.why, { backgroundColor: scheme.surfaceAlt }]}>
+        <TrendingDown size={13} color={status.warning.solid} />
+        <Txt variant="caption" color={scheme.textSecondary} style={{ flex: 1 }}>
+          {suggestion.why.text}
+        </Txt>
+      </View>
+
       <View style={styles.recoveryMeta}>
         <Chip
           label={`${when.toLowerCase()} · ${formatEstimate(suggestion.action.minutes)}`}
@@ -532,20 +737,14 @@ function RecoveryRow({
           size="sm"
           tone="success"
         />
+        {suggestion.why.dipAt ? (
+          <Chip
+            label={`worst ${formatDayName(suggestion.why.dipAt, now)} · ${suggestion.why.dipValue}`}
+            size="sm"
+            tone="warning"
+          />
+        ) : null}
       </View>
-
-      <Button
-        label={timed ? 'Add and start' : 'Add to my plan'}
-        variant="secondary"
-        size="sm"
-        icon={timed ? <Timer size={14} color={scheme.primary} /> : undefined}
-        onPress={onAdd}
-        accessibilityHint={
-          timed
-            ? `Schedules ${when} and opens its timer. Raises ${suggestion.reading.label} by ${suggestion.lift} when finished.`
-            : `Schedules ${when}. Takes time, adds no pressure, and raises ${suggestion.reading.label} by ${suggestion.lift} when finished.`
-        }
-      />
     </Card>
   );
 }
@@ -563,11 +762,15 @@ function MoveRow({
   now,
   accepted,
   onToggle,
+  open,
+  onToggleReasoning,
 }: {
   move: Move;
   now: Date;
   accepted: boolean;
   onToggle: () => void;
+  open: boolean;
+  onToggleReasoning: () => void;
 }) {
   const scheme = useScheme();
   const Icon = LEVER_ICON[move.lever];
@@ -633,6 +836,50 @@ function MoveRow({
           <Txt variant="caption" color={scheme.textSecondary}>
             {move.cost}
           </Txt>
+
+          {/*
+            ── The reasoning ──────────────────────────────────────────────────
+
+            Collapsed, because five open paragraphs is a wall of text handed to
+            somebody who is already over capacity — and available, because a
+            proposal you cannot interrogate is one you can only obey or ignore.
+            This screen asks a student to put something down on the app's say-so,
+            and "trust me" is not an argument.
+
+            The certainty chip sits on the toggle rather than inside the
+            paragraph so it is legible without opening anything. The relief
+            figure beside it was simulated and is exact; whether this task
+            should move at all is a judgement over six coarse signals, and the
+            row should not present the two at the same confidence.
+          */}
+          <Interactive
+            accessibilityRole="button"
+            accessibilityLabel={
+              open ? `Hide Pip's reasoning for ${move.title}` : `Why Pip proposed this: ${move.title}`
+            }
+            onPress={onToggleReasoning}
+            radius="md"
+            style={[styles.whyToggle, { backgroundColor: scheme.surfaceAlt }]}
+          >
+            <Brain size={13} color={scheme.primary} />
+            <Txt variant="caption" color={scheme.primary} style={{ flex: 1 }}>
+              {open ? 'Hide reasoning' : "Why Pip picked this"}
+            </Txt>
+            <Chip label={`${move.certainty} confidence`} size="sm" tone={CERTAINTY_TONE[move.certainty]} />
+            {open ? (
+              <ChevronUp size={13} color={scheme.primary} />
+            ) : (
+              <ChevronDown size={13} color={scheme.primary} />
+            )}
+          </Interactive>
+
+          {open ? (
+            <View style={[styles.verdict, { borderLeftColor: scheme.primary }]}>
+              <Txt variant="caption" color={scheme.textSecondary}>
+                {move.verdict}
+              </Txt>
+            </View>
+          ) : null}
         </View>
       </View>
     </Card>
@@ -668,7 +915,33 @@ const styles = StyleSheet.create({
   moveBody: { flex: 1, gap: space[1] },
   moveHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
 
+  applied: { gap: space[2], borderWidth: 1 },
+  appliedHead: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+
+  recoveryTitle: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
   recovery: { gap: space[2], padding: space[3] },
+  why: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space[2],
+    padding: space[2.5],
+    borderRadius: radius.md,
+  },
+  whyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1.5],
+    paddingVertical: space[2],
+    paddingHorizontal: space[2.5],
+    borderRadius: radius.md,
+    marginTop: space[1],
+  },
+  verdict: {
+    borderLeftWidth: 2,
+    paddingLeft: space[2.5],
+    paddingVertical: space[1],
+    marginTop: space[1],
+  },
   recoveryHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2.5] },
   recoveryMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1.5] },
   dates: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },

@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
-    "verify": "tsc -p tsconfig.verify.json && node --experimental-strip-types scripts/verify-rebalance.ts && node --experimental-strip-types scripts/verify-recovery.ts"
+    "verify": "tsc -p tsconfig.verify.json && node --experimental-strip-types scripts/verify-rebalance.ts && node --experimental-strip-types scripts/verify-recovery.ts && node --experimental-strip-types scripts/verify-conversation.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

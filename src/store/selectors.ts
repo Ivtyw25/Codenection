@@ -18,20 +18,26 @@ import {
   deriveStreak,
   forecastAhead,
   nextAction,
+  outlook,
   progress,
   projectVital,
   queryTasks,
   readVitals,
   vitalSeries,
+  type DayOutlook,
 } from '@/data/derive';
 import { calibrationNote, checkInOn, checkInOpen } from '@/data/calibration';
+import { formatDayName, isoDate } from '@/data/format';
 import { activeCategories, findCategory } from '@/data/categories';
 import { explainVital, type VitalExplanation } from '@/data/explain';
 import { planRebalance, type RebalancePlan } from '@/data/rebalance';
 import {
   buildRecoveryTask,
+  recoveryCase,
   suggestRecovery,
   takenActions,
+  type DayLoad,
+  type RecoveryCase,
   type RecoverySuggestion,
 } from '@/data/recovery';
 import {
@@ -218,6 +224,25 @@ export function useRecoverySuggestions(): PlannedRecovery[] {
     const suggestions = suggestRecovery(readings, takenActions(data.tasks));
 
     /*
+     * What each day ahead already carries, from the one real schedule.
+     *
+     * The case a suggestion makes for itself names a day and says what is on
+     * it — "Thursday, where you already have four blocks and five hours" — and
+     * that has to be the same Thursday the timeline shows, or the row is
+     * quoting a week the student does not have.
+     */
+    const planned = buildSchedule(data.tasks, now);
+    const dayLoad = new Map<string, DayLoad>();
+    for (const slot of planned.values()) {
+      if (!slot.startAt) continue;
+      const key = isoDate(slot.startAt);
+      const day = dayLoad.get(key) ?? { blocks: 0, minutes: 0 };
+      day.blocks += 1;
+      if (!slot.delegatedTo) day.minutes += slot.estimateMin;
+      dayLoad.set(key, day);
+    }
+
+    /*
      * Each one priced for TIME, the way moves are priced for pressure.
      *
      * The row promises a slot — "today, 4:40pm" — and the only honest way to
@@ -235,15 +260,33 @@ export function useRecoverySuggestions(): PlannedRecovery[] {
     return suggestions.map((suggestion) => {
       const candidate = buildRecoveryTask(suggestion, `rec_preview_${suggestion.action.id}`, now);
       const schedule = buildSchedule([...data.tasks, candidate], now);
-      return { ...suggestion, plannedAt: schedule.get(candidate.id)?.startAt ?? null };
+
+      /*
+       * The argument for this block, against the CURRENT plan.
+       *
+       * Projected without the candidate in the list on purpose: the case is
+       * "here is the dip you are heading for", and running it against a world
+       * that already contains the fix would quote a shallower dip and
+       * under-sell the row against its own evidence.
+       */
+      const series = vitalSeries(suggestion.action.vitalId, data.vitals, data.history);
+      const projection = projectVital(suggestion.action.vitalId, series, data.tasks, 7, now);
+
+      return {
+        ...suggestion,
+        plannedAt: schedule.get(candidate.id)?.startAt ?? null,
+        why: recoveryCase(suggestion, projection, dayLoad, (iso) => formatDayName(iso, now)),
+      };
     });
-  }, [readings, data.tasks, now]);
+  }, [readings, data.tasks, data.vitals, data.history, now]);
 }
 
 /** A suggestion plus the slot the real scheduler would give it. */
 export interface PlannedRecovery extends RecoverySuggestion {
   /** ISO-8601, or null if the day genuinely has no room left for it. */
   plannedAt: string | null;
+  /** The dated argument for adding it — see `recoveryCase`. */
+  why: RecoveryCase;
 }
 
 // ── Calibration ─────────────────────────────────────────────────────────────
@@ -423,7 +466,55 @@ export function useProposedTimeline(proposed: ProposedTask[]): Schedule {
   );
 }
 
-/** Seven-day series for Reflect, oldest first, with today appended live. */
+// ── The calendar ────────────────────────────────────────────────────────────
+
+/**
+ * Every day the app has a reading for, keyed by ISO date.
+ *
+ * A map rather than a list because the calendar renders a grid of dates and
+ * asks "what about this square?" — the one access pattern a sorted array makes
+ * awkward. The list is available too, for the parts of the screen that want a
+ * run of days (the week strip, the next-bad-day line).
+ *
+ * Recomputed like everything else: tick a task off and the forward squares
+ * lighten in the same frame, because their pressure was derived from the plan
+ * that task was part of.
+ */
+export function useOutlook(window: { back?: number; forward?: number } = {}): {
+  days: DayOutlook[];
+  byDate: Map<string, DayOutlook>;
+  /** The heaviest day ahead, if any of them are genuinely heavy. */
+  worstAhead: DayOutlook | null;
+} {
+  const { data } = useApp();
+  const now = useNow();
+  const back = window.back;
+  const forward = window.forward;
+
+  return useMemo(() => {
+    const days = outlook(data, now, { back, forward });
+    const ahead = days.filter((d) => !d.actual);
+    const worst = ahead.reduce<DayOutlook | null>(
+      (bad, day) => (bad == null || day.pressure > bad.pressure ? day : bad),
+      null,
+    );
+    return {
+      days,
+      byDate: new Map(days.map((d) => [d.date, d])),
+      // Only called out when it is actually worth calling out. A "worst day
+      // ahead" banner on a quiet fortnight is the app manufacturing a worry.
+      worstAhead: worst && worst.state !== 'balanced' ? worst : null,
+    };
+  }, [data, now, back, forward]);
+}
+
+/** Everything the plan puts on one particular day. The calendar's day panel. */
+export function useDaySlots(date: Date | string | null): Slot[] {
+  const schedule = useSchedule();
+  return useMemo(() => (date ? slotsOn(schedule, new Date(date)) : []), [schedule, date]);
+}
+
+/** Seven-day series for the streak drawer, oldest first, with today live. */
 export function useWeekSeries() {
   const { data } = useApp();
   const capacity = useCapacity();

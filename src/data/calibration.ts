@@ -40,7 +40,7 @@ import { isoDate } from './format';
  * scale here would mean two different ideas of how far apart "wilting" and
  * "depleted" are, and they would drift.
  */
-const STRAIN_AT: Record<PipStateName, number> = {
+export const STRAIN_AT: Record<PipStateName, number> = {
   balanced: 30,
   strained: 50,
   wilting: 66,
@@ -151,15 +151,6 @@ export function calibrationNote(calibration: Calibration | undefined): string | 
     : `Across ${entries.length} check-ins you have consistently felt better than the task list alone suggested, so Pip now reads your reserve ${bias} ${bias === 1 ? 'point' : 'points'} higher than the raw model would.`;
 }
 
-/** The five options the check-in opens with, in the order they are shown. */
-export const FELT_OPTIONS: { state: PipStateName; label: string; blurb: string }[] = [
-  { state: 'balanced', label: 'Good', blurb: 'Steady. Today was fine.' },
-  { state: 'strained', label: 'Busy', blurb: 'Full, but I was on top of it.' },
-  { state: 'wilting', label: 'Stretched', blurb: 'Running on less than I had.' },
-  { state: 'depleted', label: 'Drained', blurb: 'Today took more than it gave.' },
-  { state: 'critical', label: 'Done in', blurb: 'I have nothing left.' },
-];
-
 // ── The evening conversation ────────────────────────────────────────────────
 
 /**
@@ -184,185 +175,11 @@ export function checkInOpen(now: Date): boolean {
   return now.getHours() >= CHECKIN_HOUR;
 }
 
-/**
- * One turn in the check-in.
- *
- * `felt` is what the answer means on the strain axis; null on turns that are
- * only gathering context and should not move the reading on their own.
+/*
+ * The conversation itself — what Pip asks, and how a typed answer is read back
+ * into a `PipStateName` — lives in `conversation.ts`. It was a branching menu of
+ * five buttons until it moved there; this file deliberately keeps only the
+ * things that are true regardless of how the question is asked: when it may be
+ * asked, what the answer means on the strain axis, and what a run of answers
+ * corrects.
  */
-export interface CheckInReply {
-  id: string;
-  label: string;
-  /** Where this answer lands, when it revises the read. */
-  felt?: PipStateName;
-  /** Pip's acknowledgement. Says what it heard, never what it thinks. */
-  ack: string;
-}
-
-export interface CheckInTurn {
-  id: string;
-  /** What Pip says before the options. */
-  prompt: string;
-  replies: CheckInReply[];
-}
-
-/**
- * Why this is a conversation rather than a five-way tap.
- *
- * The single-tap version asked "does Pip's read match?" and took the first
- * answer as fact. That is a bad instrument for the thing being measured, for
- * two reasons a single question cannot get around.
- *
- * PEOPLE ANSWER THE EASY VERSION. "Fine" is what anybody types into a wellbeing
- * prompt at the end of a hard day, because it closes the card fastest. A follow
- * up that asks something concrete — did you stop, did you sleep, was any of it
- * yours — gets an answer about the day instead of an answer about the prompt.
- *
- * ONE WORD IS NOT A READING. "Drained" covers a productive day that cost a lot
- * and an empty day that cost more; those are different states and the
- * calibration would learn the wrong thing from either if it could not tell them
- * apart. The second turn is what separates them, and it can revise the reading
- * the first one produced.
- *
- * It stays THREE turns at most. This is a tired person at 9pm, and an interview
- * is a worse instrument than a single question — it gets abandoned, which
- * collects nothing at all.
- */
-export const CHECKIN_OPENER: CheckInTurn = {
-  id: 'open',
-  prompt: 'How did today actually land?',
-  replies: FELT_OPTIONS.map((o) => ({
-    id: o.state,
-    label: o.label,
-    felt: o.state,
-    ack: o.blurb,
-  })),
-};
-
-/**
- * The follow-up, chosen by what they just said.
- *
- * Each one probes the specific way its answer is most often wrong — and every
- * branch can move the reading, because the point of asking again is that the
- * second answer is allowed to overrule the first.
- */
-export function followUp(felt: PipStateName): CheckInTurn {
-  switch (felt) {
-    case 'balanced':
-      return {
-        id: 'balanced_probe',
-        prompt: 'Good is the answer people give to close the card. Did today actually have a stop in it?',
-        replies: [
-          {
-            id: 'real_stop',
-            label: 'Yes — I properly stopped',
-            felt: 'balanced',
-            ack: 'Then it was a genuinely good one. Those are worth noticing.',
-          },
-          {
-            id: 'busy_fine',
-            label: 'Not really, but I was fine',
-            felt: 'strained',
-            ack: 'Fine while moving is a different thing from rested. Logged as busy.',
-          },
-          {
-            id: 'no_stop',
-            label: 'No, and I felt it by the end',
-            felt: 'wilting',
-            ack: 'That is worth counting properly rather than rounding up to fine.',
-          },
-        ],
-      };
-
-    case 'strained':
-      return {
-        id: 'strained_probe',
-        prompt: 'Busy covers two very different days. Was today full of things you chose?',
-        replies: [
-          {
-            id: 'chosen',
-            label: 'Mostly mine, yes',
-            felt: 'strained',
-            ack: 'A full day of your own work costs less than a full day of everyone else’s.',
-          },
-          {
-            id: 'reactive',
-            label: 'Mostly reacting to other people',
-            felt: 'wilting',
-            ack: 'That is the more expensive kind of busy, and it rarely shows in a task list.',
-          },
-          {
-            id: 'behind',
-            label: 'Spent most of it behind',
-            felt: 'depleted',
-            ack: 'Running behind all day costs more than the work in it. Noted.',
-          },
-        ],
-      };
-
-    case 'wilting':
-      return {
-        id: 'wilting_probe',
-        prompt: 'Was that mostly the work today, or how you started it?',
-        replies: [
-          {
-            id: 'today',
-            label: 'Today was just heavy',
-            felt: 'wilting',
-            ack: 'A heavy day you can see the end of.',
-          },
-          {
-            id: 'accumulated',
-            label: 'I have been running low for days',
-            felt: 'depleted',
-            ack: 'That changes the reading. A run of days is not the same as one of them.',
-          },
-        ],
-      };
-
-    case 'depleted':
-    case 'critical':
-      return {
-        id: 'depleted_probe',
-        prompt: 'Did you sleep badly last night, or is this about what the day asked of you?',
-        replies: [
-          {
-            id: 'sleep',
-            label: 'Slept badly',
-            felt: 'depleted',
-            ack: 'Then tonight matters more than tomorrow’s list does.',
-          },
-          {
-            id: 'load',
-            label: 'The day asked too much',
-            felt: felt === 'critical' ? 'critical' : 'depleted',
-            ack: 'That is the one Pip can actually do something about — a rebalance is built for it.',
-          },
-          {
-            id: 'both',
-            label: 'Both, honestly',
-            felt: 'critical',
-            ack: 'Logged at the bottom of the scale. That is not a failure, it is information.',
-          },
-        ],
-      };
-  }
-}
-
-/**
- * The closing line, after the reading has settled.
- *
- * States what was recorded and what it will do — nothing else. Advice here
- * would be the app answering a question it just asked, at the moment somebody
- * has least appetite for being told anything.
- */
-export function closingLine(felt: PipStateName, computed: PipStateName): string {
-  if (felt === computed) {
-    return 'That matches what Pip had. Agreeing is as useful an answer as disagreeing — it is what tells the model it is reading you right.';
-  }
-
-  const worse = STRAIN_AT[felt] > STRAIN_AT[computed];
-  return worse
-    ? 'Pip had today lighter than you did. Enough evenings like this and it will start reading your reserve lower than the task list alone suggests.'
-    : 'Pip had today heavier than you did. Enough evenings like this and it will stop over-reading what your week is costing you.';
-}

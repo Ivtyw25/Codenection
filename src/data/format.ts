@@ -70,6 +70,24 @@ export function formatDueShort(iso: string | null, now: Date = new Date()): stri
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/**
+ * "tomorrow" · "Thursday" · "Thu 2 Oct" — a day named inside a sentence.
+ *
+ * Lower case and un-punctuated, because everything that uses it is mid-prose
+ * ("Suggested because of Thursday…"). The existing day formatters all shout for
+ * chips and rail headings, and dropping one of those into a paragraph is how
+ * copy ends up reading like a database row.
+ */
+export function formatDayName(d: Date | string, now: Date = new Date()): string {
+  const day = new Date(d);
+  const off = dayOffset(day, now);
+  if (off === 0) return 'today';
+  if (off === 1) return 'tomorrow';
+  if (off === -1) return 'yesterday';
+  if (off > 1 && off <= 6) return day.toLocaleDateString(undefined, { weekday: 'long' });
+  return day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 /** "9:00 AM" — a single instant on the clock. */
 export function formatClock(iso: string | Date): string {
   return new Date(iso).toLocaleTimeString(undefined, TIME);

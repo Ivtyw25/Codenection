@@ -11,7 +11,7 @@
  */
 const BASE = require('path').join(__dirname, '..', '.verify-build', 'src', 'data') + require('path').sep;
 
-const { planRebalance, applyMoves, priceSubset, REBALANCE_THRESHOLD, REBALANCE_TARGET } = require(
+const { planRebalance, applyMoves, priceSubset, importanceOf, REBALANCE_THRESHOLD, REBALANCE_TARGET } = require(
   BASE + 'rebalance.js'
 );
 const { derivePressure } = require(BASE + 'derive.js');
@@ -290,6 +290,58 @@ check(
   latePlan.moves.filter((m) => m.overdue).length === 1,
   `pressure=${latePlan.before}, moves=${latePlan.moves.length}`,
 );
+
+// ── 7. Worth, and what it changes ───────────────────────────────────────────
+/*
+ * The engine now has an opinion about whether a task is worth doing, and that
+ * opinion decides which lever a task is offered. Three things must hold: it can
+ * call something optional, it refuses to call an imminent or part-finished
+ * commitment optional whatever the arithmetic says, and optional work is
+ * offered as a DROP rather than handed a polite new date.
+ */
+console.log('\n[7] How much this one matters');
+
+const wForgotten = task({ id: 'w_lib', title: 'Return the library books', categoryId: 'errands', dueAt: null, estimateMin: 15, load: 'low', icon: 'ShoppingCart', postponeCount: 1 });
+const wImminent = task({ id: 'w_shop', title: 'Buy groceries', categoryId: 'errands', dueAt: at(1, 18), estimateMin: 40, load: 'low', icon: 'ShoppingCart' });
+const wBegun = task({ id: 'w_begun', title: 'Poster for the fair', categoryId: 'club', dueAt: at(9), estimateMin: 45, load: 'low', icon: 'Users',
+  subtasks: [{ ...step('Draft the copy', 20), done: true }, step('Print it', 25)] });
+const wAnchor = task({ id: 'w_mid', title: 'Midterm revision', categoryId: 'academics', dueAt: at(2), estimateMin: 240, load: 'high', icon: 'BookOpen' });
+
+const readOf = (t: any) => importanceOf(t, DEFAULT_CATEGORIES, now);
+check('a dateless, moved, tiny errand is optional', readOf(wForgotten).level === 'optional', `score=${readOf(wForgotten).score}`);
+check('a deadline inside two days vetoes optional', readOf(wImminent).level !== 'optional', `level=${readOf(wImminent).level}, score=${readOf(wImminent).score}`);
+check('work already begun vetoes optional', readOf(wBegun).level !== 'optional', `level=${readOf(wBegun).level}`);
+check('a high-load label reads as an anchor', readOf(wAnchor).level === 'anchor');
+check('every read explains itself', readOf(wForgotten).signals.length > 0);
+
+const worthPlan = planRebalance([wAnchor, wForgotten, wImminent, wBegun, ...heavy.slice(0, 3)], teammates, DEFAULT_CATEGORIES, now, { force: true });
+const onForgotten = worthPlan.moves.filter((m: any) => m.taskId === 'w_lib');
+console.log(`      moves=${worthPlan.moves.map((m: any) => `${m.lever}:${m.taskId}`).join(', ')}`);
+check('optional work is offered as a drop, never a later date',
+  onForgotten.every((m: any) => m.lever === 'drop'),
+  onForgotten.map((m: any) => m.lever).join(',') || 'not reached this run');
+check('nothing imminent is ever proposed for dropping',
+  worthPlan.moves.every((m: any) => m.lever !== 'drop' || m.taskId !== 'w_shop'));
+
+// ── 8. Every decision shows its working ─────────────────────────────────────
+/*
+ * A proposal a student cannot interrogate is one they can only obey or ignore,
+ * and this is the screen that asks somebody to put a commitment down. Every row
+ * carries a reasoning paragraph and a stated confidence — and the verdict ends
+ * with where the number came from, because that sentence is the claim the whole
+ * module is accountable to.
+ */
+console.log('\n[8] Every decision shows its working');
+const everyMove = [...plan.moves, ...plan.aids, ...worthPlan.moves, ...rescued.moves];
+check('every move carries a verdict',
+  everyMove.every((m: any) => typeof m.verdict === 'string' && m.verdict.length > 120),
+  `shortest=${Math.min(...everyMove.map((m: any) => m.verdict.length))} chars`);
+check('every move states a confidence', everyMove.every((m: any) => ['high', 'medium', 'low'].includes(m.certainty)));
+check('a priced move says the number was simulated',
+  plan.moves.every((m: any) => /Priced at −\d+|prices at zero/.test(m.verdict)));
+check('the relief quoted in the verdict is the relief on the row',
+  plan.moves.every((m: any) => m.relief === 0 || m.verdict.includes(`−${m.relief}`)));
+check('no aid claims relief it cannot deliver', plan.aids.every((a: any) => /prices at zero/.test(a.verdict)));
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}\n`);
 process.exit(failures === 0 ? 0 : 1);
