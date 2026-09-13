@@ -294,13 +294,71 @@ const TASKS: Task[] = [
         delegatedTo: null,
       },
     ],
+    resources: [
+      {
+        id: 'r_club_runsheet',
+        name: 'recruitment_night_runsheet.docx',
+        kind: 'Doc',
+        size: '72 KB',
+        attachmentKind: 'document',
+      },
+      {
+        id: 'r_club_venue',
+        name: 'Venue booking form — DK3',
+        kind: 'Link',
+        size: '—',
+        external: true,
+      },
+    ],
+    pipNote:
+      'The poster and the room both gate the announcement, so those two are the ones worth protecting a slot for.',
+  },
+  /*
+   * The thing nobody is going to do.
+   *
+   * Added because the fixture had no such thing, and the Rebalancer's newest
+   * lever was therefore unreachable: `importanceOf` scored every one of the
+   * seven tasks above as `real` or `anchor` — each had a deadline, a high-load
+   * label, or work already started — so the engine never once got to say the
+   * one thing it is most valuable for saying, which is *this was never worth
+   * doing, let it go*. A capability that cannot occur in the seeded world does
+   * not exist as far as anyone looking at the app is concerned.
+   *
+   * Every signal points the same way on purpose, and they are all signals the
+   * student themselves set: no date, low load, twenty-odd minutes, filed under
+   * work they have told the app anyone could do, and already pushed once. That
+   * is a score of −5 and the only `optional` task in the world.
+   *
+   * It is also, deliberately, the most recognisable item on the list. Everybody
+   * has a hoodie order form.
+   */
+  {
+    id: 't_hoodie',
+    title: 'Chase the club hoodie order form',
+    status: 'open',
+    categoryId: 'club',
+    tag: '#Leadership',
+    // No date at all. It has been "this week" for three weeks.
+    dueAt: null,
+    estimateMin: 45,
+    load: 'low',
+    icon: 'Users',
+    createdAt: at(-12, 15, 20),
+    completedAt: null,
+    // Moved once already, which is the signal that does the most work here:
+    // the student has looked at this task, decided against it, and re-dated it.
+    postponeCount: 1,
+    subtasks: [],
     resources: [],
+    pipNote:
+      'This has been on the list longer than anything else and has never had a date. That is usually an answer.',
   },
   {
     id: 't_groceries',
     title: 'Restock groceries for the week',
     status: 'open',
     categoryId: 'errands',
+    tag: '#Errands',
     dueAt: at(0, 19),
     estimateMin: 20,
     load: 'low',
@@ -505,18 +563,35 @@ function blend(v: Record<VitalId, number>): number {
  * the model would disagree with, and changing a weight re-writes the past
  * correctly instead of leaving six hand-typed numbers behind.
  *
- * The week tells a specific story on purpose: a rough start (two short nights),
- * a solid recovery, and underneath it a Social Connection score sliding from 72
- * to 44 the whole time. That is the shape the detail page exists to catch — the
- * one sub-stat quietly falling while the headline number looks fine.
+ * ── Why it descends into today ─────────────────────────────────────────────
+ *
+ * The previous week ran the other way: it ended on Rest 75, Mood 79, Physical
+ * 70 — a good Saturday — and then today's readings open at 38/45/30. A forty
+ * point collapse overnight in every sub-stat at once.
+ *
+ * That was not merely implausible, it broke two features that read the series.
+ * `projectVital` measures the recent slope and carries it forward, so a cliff
+ * that steep extrapolated to **Physical 0 and Rest 6 within the week**, and the
+ * recovery suggestions dutifully argued from it: "projected to reach 0 that day
+ * — 65 under the 65 you set for yourself". A forecast of zero is not a forecast,
+ * and a number that absurd discredits every honest number beside it.
+ *
+ * So the week now slides into today instead of falling off a shelf. Pressure
+ * climbs 44 → 80 as the deadlines stack up; all four sub-stats decline, and the
+ * decline FLATTENS toward the end, because that is both what happens to people
+ * and what keeps the projection inside the realm of the believable.
+ *
+ * The by-product is the best thing on the calendar: six squares running
+ * balanced → strained → wilting → depleted into today's critical, so the week
+ * can be seen going wrong rather than described as having gone wrong.
  */
 const HISTORY: DayRecord[] = [
-  { offset: -6, pressure: 62, tasksCompleted: 1, vitals: { rest: 62, mood: 58, physical: 66, social: 72 } },
-  { offset: -5, pressure: 71, tasksCompleted: 0, vitals: { rest: 51, mood: 52, physical: 64, social: 70 } },
-  { offset: -4, pressure: 44, tasksCompleted: 3, vitals: { rest: 74, mood: 70, physical: 67, social: 66 } },
-  { offset: -3, pressure: 38, tasksCompleted: 2, vitals: { rest: 80, mood: 76, physical: 70, social: 61 } },
-  { offset: -2, pressure: 41, tasksCompleted: 2, vitals: { rest: 77, mood: 78, physical: 69, social: 55 } },
-  { offset: -1, pressure: 35, tasksCompleted: 4, vitals: { rest: 75, mood: 79, physical: 70, social: 49 } },
+  { offset: -6, pressure: 44, tasksCompleted: 3, vitals: { rest: 63, mood: 64, physical: 52, social: 60 } },
+  { offset: -5, pressure: 52, tasksCompleted: 2, vitals: { rest: 56, mood: 59, physical: 46, social: 55 } },
+  { offset: -4, pressure: 59, tasksCompleted: 2, vitals: { rest: 50, mood: 55, physical: 41, social: 51 } },
+  { offset: -3, pressure: 66, tasksCompleted: 1, vitals: { rest: 45, mood: 51, physical: 37, social: 48 } },
+  { offset: -2, pressure: 73, tasksCompleted: 1, vitals: { rest: 42, mood: 48, physical: 34, social: 45 } },
+  { offset: -1, pressure: 80, tasksCompleted: 0, vitals: { rest: 40, mood: 46, physical: 32, social: 43 } },
 ].map(({ offset, vitals, ...rest }) => {
   const d = startOfDay(new Date());
   d.setDate(d.getDate() + offset);
