@@ -5,7 +5,7 @@ import { CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react-native';
 
 import { Card, Chip, Txt } from '@/components/ui';
 import { useWeekSeries } from '@/store/selectors';
-import { radius, space, status, useScheme } from '@/theme';
+import { radius, space, status, type, useScheme } from '@/theme';
 import type { PipStateName } from '@/types';
 
 const STATE_TONE: Record<PipStateName, 'success' | 'warning' | 'danger'> = {
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   chart: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   column: { alignItems: 'center', gap: space[1], flex: 1 },
-  value: { fontSize: 10 },
+  value: { fontSize: type.caption.fontSize, lineHeight: type.caption.lineHeight },
   track: {
     width: 18,
     height: 120,

@@ -4,7 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react-native';
 
-import { radius, space, status, useMotion, useScheme } from '@/theme';
+import { elevation, radius, space, status, useMotion, useScheme } from '@/theme';
 import { useApp } from '@/store/AppStore';
 import { Interactive } from './Interactive';
 import { Txt } from './Txt';
@@ -94,12 +94,10 @@ const styles = StyleSheet.create({
     paddingVertical: space[3],
     paddingHorizontal: space[4],
     borderRadius: radius.pill,
-    // The lifted-card shadow, the one real elevation the teardown kept.
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
-    elevation: 12,
+    // The lifted-card shadow, the one real elevation the teardown kept. Spread
+    // from the token rather than retyped: this was a verbatim copy of
+    // `elevation.lg`, which is one more place for the scale to drift.
+    ...elevation.lg,
   },
   action: { paddingHorizontal: space[2], paddingVertical: space[1] },
 });

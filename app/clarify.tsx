@@ -228,7 +228,7 @@ export default function ClarifyScreen() {
               <PipMascot size={30} state={pip.name} />
               <View style={{ flex: 1, gap: space[1] }}>
                 {b.about ? (
-                  <Txt variant="caption" color={scheme.textDisabled} style={styles.eyebrow}>
+                  <Txt variant="caption" color={scheme.textMuted} style={styles.eyebrow}>
                     {b.about.toUpperCase()}
                   </Txt>
                 ) : null}

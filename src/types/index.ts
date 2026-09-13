@@ -76,6 +76,20 @@ export interface Category {
    */
   match: string[];
   /**
+   * Whether work in this category is the kind somebody else could take.
+   *
+   * The Rebalancer's delegate lever is worthless without this, and actively
+   * embarrassing: its first run offered to ask a friend to sit the user's
+   * midterm revision. Nobody can revise for you. Errands, on the other hand,
+   * are almost entirely handoffable — that is the whole shape of the work.
+   *
+   * It lives on the CATEGORY rather than on each task because the student
+   * already knows the answer for a whole area of their life and should be asked
+   * once, not per task. A per-step override exists for the exceptions — see
+   * `SubTask.delegable`.
+   */
+  shareable: boolean;
+  /**
    * Retired rather than deleted.
    *
    * Deleting a category the user has history under would silently rewrite what
@@ -132,6 +146,14 @@ export interface SubTask {
    * step still blocks its dependents until someone marks it done.
    */
   delegatedTo?: TeammateId | null;
+  /**
+   * Per-step override of the category's `shareable`.
+   *
+   * Undefined means "inherit". Present for the exceptions the category rule
+   * gets wrong in both directions — the one errand only you can run, and the
+   * one piece of coursework that genuinely is a group job.
+   */
+  delegable?: boolean;
   /**
    * ISO-8601. When this step was actually ticked, or null while it is open.
    *

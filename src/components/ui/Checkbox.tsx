@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Check, Minus } from 'lucide-react-native';
+import { AlertCircle, Check, Minus } from 'lucide-react-native';
 
 import { MIN_TAP_TARGET, n, radius, space, status, useScheme } from '@/theme';
 import { Interactive } from './Interactive';
@@ -77,6 +77,18 @@ export function Checkbox({
           <Minus size={size * 0.6} color={n[0]} strokeWidth={3} />
         ) : checked ? (
           <Check size={size * 0.6} color={n[0]} strokeWidth={3} />
+        ) : error ? (
+          /*
+             The design system forbids conveying state by colour alone, and the
+             error state was breaking its own rule: it recoloured the border to
+             danger red and changed nothing else, so to anyone who cannot
+             separate red from grey the control was simply unticked.
+
+             An empty errored box now carries a mark. It is the only state that
+             draws a glyph while unchecked, which is exactly what makes it
+             legible as "something is wrong here" rather than as a tick.
+          */
+          <AlertCircle size={size * 0.62} color={status.danger.solid} strokeWidth={2.5} />
         ) : null}
       </View>
 

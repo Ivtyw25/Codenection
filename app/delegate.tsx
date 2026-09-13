@@ -95,7 +95,7 @@ export default function DelegateScreen() {
           size={40}
           onPress={() => router.back()}
         />
-        <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flex: 1, gap: space[0.5] }}>
           <Txt variant="h3" numberOfLines={2}>
             Who&apos;s taking this?
           </Txt>
@@ -189,7 +189,7 @@ function TeammateRow({
         >
           <Avatar initials={mate.initials} size={36} />
 
-          <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flex: 1, gap: space[0.5] }}>
             <Txt variant="body">{mate.name}</Txt>
 
             {tone ? (
@@ -203,8 +203,8 @@ function TeammateRow({
               // Not "unknown" — they made a choice, and the screen should read
               // as respecting it rather than as a gap in the data.
               <View style={styles.stateRow}>
-                <EyeOff size={11} color={scheme.textDisabled} />
-                <Txt variant="caption" color={scheme.textDisabled}>
+                <EyeOff size={11} color={scheme.textMuted} />
+                <Txt variant="caption" color={scheme.textMuted}>
                   Not sharing
                 </Txt>
               </View>
@@ -214,7 +214,7 @@ function TeammateRow({
           {mate.sharesState ? (
             <ChevronDown
               size={16}
-              color={scheme.textDisabled}
+              color={scheme.textMuted}
               style={open ? styles.chevronOpen : undefined}
             />
           ) : null}
@@ -251,7 +251,7 @@ function WeekPanel({ mate }: { mate: Teammate }) {
     <View style={[styles.week, { backgroundColor: scheme.surfaceAlt }]}>
       <View style={styles.pipRow}>
         <PipMascot size={56} state={mate.state ?? 'balanced'} />
-        <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flex: 1, gap: space[0.5] }}>
           {tone ? (
             <Txt variant="h4" color={tone.fg}>
               {tone.label}
@@ -308,7 +308,7 @@ function WeekRow({
           const today = i === week.length - 1;
           return (
             <View key={day.date} style={styles.barCol}>
-              <Txt variant="caption" color={today ? scheme.text : scheme.textDisabled}>
+              <Txt variant="caption" color={today ? scheme.text : scheme.textMuted}>
                 {v}
               </Txt>
               <View style={styles.barTrack}>
@@ -325,7 +325,7 @@ function WeekRow({
                   ]}
                 />
               </View>
-              <Txt variant="caption" color={scheme.textDisabled}>
+              <Txt variant="caption" color={scheme.textMuted}>
                 {DAY_INITIAL[new Date(day.date).getDay()]}
               </Txt>
             </View>
@@ -362,9 +362,9 @@ const styles = StyleSheet.create({
   week: { paddingHorizontal: space[3], paddingBottom: space[3], gap: space[3] },
   pipRow: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: space[1] },
-  barCol: { flex: 1, alignItems: 'center', gap: 2 },
+  barCol: { flex: 1, alignItems: 'center', gap: space[0.5] },
   barTrack: { height: 40, justifyContent: 'flex-end' },
-  bar: { width: 14, borderRadius: 3 },
+  bar: { width: 14, borderRadius: radius.sm },
   takeBack: {
     marginTop: space[3],
     borderWidth: 1,

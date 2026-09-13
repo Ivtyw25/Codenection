@@ -2,7 +2,7 @@ import React, { type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { brand, space } from '@/theme';
+import { brand, n, space } from '@/theme';
 
 export interface ForestHeaderProps {
   children: ReactNode;
@@ -41,7 +41,7 @@ export function ForestHeader({ children, pad = space[6], flat, style }: ForestHe
 
 /** Ink that is legible on the canopy. Never a scheme colour — see above. */
 export const onForest = {
-  primary: '#ffffff',
+  primary: n[0],
   secondary: 'rgba(255,255,255,0.72)',
   muted: 'rgba(255,255,255,0.60)',
   hairline: 'rgba(255,255,255,0.18)',

@@ -1,0 +1,26 @@
+{
+  // Dev-only. Emits the pure data modules to plain CommonJS so
+  // `scripts/verify-rebalance.ts` can exercise the Rebalancer in bare Node.
+  // The app itself never uses this config — see `npm run verify`.
+  //
+  // Deliberately standalone rather than extending ./tsconfig.json: the Expo
+  // base sets `customConditions`, which TypeScript only permits under the
+  // node16/nodenext/bundler resolvers, and this config needs classic `node`
+  // resolution to emit plain requireable CommonJS.
+  "compilerOptions": {
+    "strict": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
+    "target": "es2022",
+    "lib": ["es2022"],
+    "rootDir": ".",
+    "outDir": ".verify-build",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": [],
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src/data/rebalance.ts", "src/data/derive.ts", "src/data/categories.ts"],
+  "exclude": ["node_modules"]
+}

@@ -9,7 +9,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "verify": "tsc -p tsconfig.verify.json && node --experimental-strip-types scripts/verify-rebalance.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

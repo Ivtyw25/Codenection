@@ -54,7 +54,7 @@ export function PipMascot({ size, glow, state = 'balanced' }: PipMascotProps) {
 function Glow({ size, state }: { size: number; state: PipStateName }) {
   const colour =
     state === 'critical' || state === 'depleted'
-      ? '#d98a72'
+      ? brand.clay
       : state === 'wilting' || state === 'strained'
         ? brand.amber
         : brand.lime;

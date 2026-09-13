@@ -45,3 +45,6 @@ pip-expo-qr.png
 
 # local emulator screenshots
 emu-*.png
+
+# Emitted by `npm run verify` — see tsconfig.verify.json
+.verify-build/

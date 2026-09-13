@@ -22,7 +22,7 @@ import {
   useVitalSeries,
   useVitals,
 } from '@/store/selectors';
-import { radius, space, status, useScheme } from '@/theme';
+import { radius, space, status, type, useScheme } from '@/theme';
 import type { VitalId, VitalReading, VitalStanding } from '@/types';
 
 const ICONS: Record<VitalId, typeof Moon> = {
@@ -174,7 +174,7 @@ export default function VitalDetailScreen() {
               const met = point.value >= reading.target;
               return (
                 <View key={point.date} style={styles.column}>
-                  <Txt variant="caption" color={scheme.textDisabled} style={styles.value}>
+                  <Txt variant="caption" color={scheme.textMuted} style={styles.value}>
                     {point.value}
                   </Txt>
                   <View style={[styles.track, { backgroundColor: scheme.surfaceAlt }]}>
@@ -237,7 +237,7 @@ export default function VitalDetailScreen() {
           readings and their own targets — saying so is what makes the numbers
           checkable, and an explanation nobody can check is worth nothing.
         */}
-        <Txt variant="caption" color={scheme.textDisabled} style={{ marginTop: space[3] }}>
+        <Txt variant="caption" color={scheme.textMuted} style={{ marginTop: space[3] }}>
           Worked out from your own readings, your {reading.target} mark and the{' '}
           {Math.round(reading.weight * 100)}% weight you give this stat. No part of it is a guess
           about you.
@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   column: { alignItems: 'center', gap: space[1], flex: 1 },
-  value: { fontSize: 10 },
+  value: { fontSize: type.caption.fontSize, lineHeight: type.caption.lineHeight },
   track: {
     width: 16,
     height: CHART_HEIGHT,

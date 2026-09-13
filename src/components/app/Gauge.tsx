@@ -58,7 +58,7 @@ export function Gauge({ label, value, kind, hint, size = 'row' }: GaugeProps) {
           <Txt variant="label" color={toneColor}>
             {value}%
           </Txt>
-          <Txt variant="label" color={scheme.textDisabled}>
+          <Txt variant="label" color={scheme.textMuted}>
             {' / 100'}
           </Txt>
         </View>

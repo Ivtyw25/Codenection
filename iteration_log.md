@@ -110,3 +110,102 @@ restorative, feature-complete, free of cognitive friction.
   findings will open Cycle #2.
 
 ---
+
+### [2026-09-13 12:13:07] — Iteration Cycle #2
+
+- **Focus Area:** The Autonomous Rebalance Engine, and the first full @UXAgent
+  aesthetic + accessibility audit of the build.
+
+- **Process note — the development protocol.** This cycle ran to `CLAUDE.md`'s
+  split for the first time. The aesthetic audit is a broad document scan across
+  ~40 files that distils to a digest — squarely above the delegation
+  break-even — so it went to **Gemini via `agy` (pro tier)** rather than being
+  read into Claude's context. Claude then applied the **Verification Gate**:
+  every finding re-derived against the source before any code moved. That
+  mattered — see below.
+
+- **@UserAgent critique & proposals:**
+  - *"Don't cancel my stuff behind my back."* The Rebalancer analyses
+    automatically but **never acts**. It proposes; one tap applies.
+  - *"If it says it'll take 14 points off, it had better take 14 points off."*
+    → Every move is priced by simulating it through the *real* `derivePressure`
+    and diffing. Nothing is estimated.
+  - *"Don't tell me to drop the midterm."* → The ladder is ordered by what the
+    move costs the STUDENT: delegate → postpone → drop.
+
+- **@UXAgent review (delegated to Gemini, verified by Claude):**
+  - **Confirmed, and understated.** `scheme.textDisabled` maps to `n[400]` —
+    **2.54:1**, which `src/theme/colors.ts` itself annotates as "NON-TEXT ONLY
+    … the teardown's #1 accessibility finding". The audit found 8 call sites
+    carrying real text; a direct grep found **25**. Fixed at all 21 text sites
+    by moving to `textMuted` (`n[500]`, 4.83:1, AA); the 4 remaining are
+    genuinely inactive-state icons paired with their own label — correct usage.
+  - **Confirmed.** `Checkbox` `error` recoloured the border and nothing else —
+    the design system's own "never convey state by colour alone" rule, broken by
+    the system's own primitive. An errored empty box now draws an `AlertCircle`.
+  - **Confirmed.** `ForecastRow`'s `Line` announced as five separate
+    screen-reader stops for one fact, and carried direction only in an arrow
+    glyph and a colour — so the part that matters (better or worse?) was exactly
+    the part a screen-reader user could not get. Now one grouped label that says
+    "improving" / "worsening" in words.
+  - **Confirmed.** `Toast` hand-rolled a shadow identical to `elevation.lg`.
+  - **Partially rejected.** The audit filed `Gauge.tsx`'s `width: 60` / `width:
+    40` under "spacing off the ramp". They are label *column widths* — a layout
+    dimension the `space` ramp does not govern. Left alone.
+  - **Caveat upheld.** The audit's own self-check flagged that its
+    "auto-hitSlop in `Interactive`" idea assumed the component can know its own
+    size. It cannot at style time — but it can via `onLayout`, so the fix was
+    implemented that way.
+  - **Coverage gap acknowledged.** Gemini reported 16 files reviewed against a
+    brief listing ~40. `app/(tabs)/tasks.tsx`, `profile.tsx`, `task/[id].tsx`,
+    `clarify.tsx`, `capture.tsx` and the new `LoadBreakdown.tsx` drew no
+    findings at all. Treated as a **partial** audit — absence of findings there
+    means nothing. A narrower second pass is queued for Cycle #3.
+
+- **Code / changes implemented:**
+  - **New** `src/data/rebalance.ts`. `planRebalance` walks the preference ladder
+    greedily, re-pricing after every accepted move against the list as it then
+    stands (pricing up-front and summing would double-count two moves on one
+    task). `applyMove` / `applyMoves` are the shared simulator, so the sheet's
+    promise and the store's commit run the same code.
+  - **Tap-target floor enforced centrally** in `Interactive.tsx`. The control
+    measures itself via `onLayout` and grows its *touch region* — never its
+    layout box — to cover any deficit against `MIN_TAP_TARGET`. Nothing on
+    screen moves; a dozen undersized controls across five files are fixed at
+    once, and the next one written is fixed before it ships. Caller `hitSlop`
+    still wins.
+  - `Category.shareable` + `SubTask.delegable` — see the gate findings below.
+  - Contrast, checkbox glyph, forecast grouping, new `brand.clay` token,
+    `elevation.lg` on Toast, `n[0]` for two raw whites, `type.caption` for four
+    `fontSize: 10` violations, spacing/radius snapped to the ramp in four files.
+  - **New** `scripts/verify-rebalance.ts`, `tsconfig.verify.json`,
+    `npm run verify`.
+
+- **Verification Gate — what running it actually caught.** The engine
+  typechecked clean and was still wrong twice. Both were found only by executing
+  it, and neither is a defect a type system could express:
+  1. **It offered to delegate the user's own exam revision to a friend.** Nobody
+     can revise for you. Fixed by making delegability the *category's* property
+     (`shareable`) with a per-step override — the student is asked once per area
+     of their life, not once per task. Academics / Internship / Personal default
+     false; Club / Errands true.
+  2. **It proposed postponing AND dropping the same task in one plan.** The
+     arithmetic was sound — the drop was priced against the already-postponed
+     list — but it is incoherent as advice, and a self-contradicting plan cannot
+     be agreed to with one tap. Whole-task levers now claim the task; delegation
+     does not, because handing three of a task's steps to three people is
+     sensible and a task-level claim would have silently capped every delegation
+     at one step per task.
+  - Harness now runs **19 checks**, including regressions for both.
+
+- **Gate:** `tsc --noEmit` clean · `eslint` clean · `npm run verify` 19/19.
+
+- **Consensus status:** **Re-looping.** Both agents acknowledge real progress
+  and both withhold sign-off on the same three things:
+  1. The Rebalancer has **no UI**. The engine is verified; nothing renders it.
+  2. Categories still have **no add / rename / retire screen** — outstanding
+     from Cycle #1, so "your categories" remains half true.
+  3. `app/review.tsx`, named the worst-offending screen for cognitive noise, is
+     **untouched**.
+
+---

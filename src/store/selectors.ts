@@ -203,6 +203,7 @@ export function useLoadBreakdown(): {
         label: slice.categoryId,
         icon: 'Sparkles' as const,
         match: [],
+        shareable: false,
       },
     }));
     return {

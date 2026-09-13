@@ -38,6 +38,8 @@ export const DEFAULT_CATEGORIES: Category[] = [
     id: 'academics',
     label: 'Academics',
     icon: 'BookOpen',
+    // Nobody can revise, sit or think for you.
+    shareable: false,
     match: [
       'assignment', 'problem set', 'pset', 'lecture', 'exam', 'paper', 'essay',
       'study', 'prof', 'professor', 'class', 'homework', 'revision', 'thesis', 'lab',
@@ -47,6 +49,9 @@ export const DEFAULT_CATEGORIES: Category[] = [
     id: 'club',
     label: 'Club',
     icon: 'Users',
+    // Committee work is the most delegable thing a student carries — there is
+    // a whole committee standing right there.
+    shareable: true,
     match: [
       'club', 'society', 'committee', 'venue', 'workshop', 'event', 'meeting',
       'gdsc', 'booking', 'member',
@@ -56,6 +61,9 @@ export const DEFAULT_CATEGORIES: Category[] = [
     id: 'internship',
     label: 'Internship',
     icon: 'Briefcase',
+    // Assigned to you by name. Handing it on is a conversation with a manager,
+    // not something an app should propose.
+    shareable: false,
     match: [
       'internship', 'intern', 'resume', 'cv', 'standup', 'sprint', 'ticket',
       'deploy', 'client', 'manager', 'interview',
@@ -65,6 +73,9 @@ export const DEFAULT_CATEGORIES: Category[] = [
     id: 'errands',
     label: 'Errands',
     icon: 'ShoppingCart',
+    // Legwork. Almost entirely handoffable — it is the shape of work the
+    // Delegate lever exists for.
+    shareable: true,
     match: [
       'buy', 'pick up', 'groceries', 'laundry', 'detergent', 'return', 'post',
       'bank', 'pharmacy', 'shop', 'collect',
@@ -74,6 +85,8 @@ export const DEFAULT_CATEGORIES: Category[] = [
     id: 'personal',
     label: 'Personal',
     icon: 'Heart',
+    // Your appointments, your body, your family. Not transferable.
+    shareable: false,
     match: ['gym', 'run', 'workout', 'doctor', 'dentist', 'appointment', 'call home', 'rent'],
   },
 ];

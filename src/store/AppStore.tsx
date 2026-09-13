@@ -304,7 +304,16 @@ function reducer(state: AppState, action: Action): AppState {
           ...data,
           categories: [
             ...data.categories,
-            { id, label: action.label.trim(), icon: action.icon, match: [] },
+            {
+              id,
+              label: action.label.trim(),
+              icon: action.icon,
+              match: [],
+              // A new category starts un-shareable. Offering to hand someone's
+              // work to a friend before they have said the work is handoffable
+              // is the wrong direction to be wrong in.
+              shareable: false,
+            },
           ],
         },
       };

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { MIN_TAP_TARGET, radius, space, useScheme } from '@/theme';
+import { MIN_TAP_TARGET, n, radius, space, useScheme } from '@/theme';
 import { Interactive } from './Interactive';
 import { Txt } from './Txt';
 
@@ -49,7 +49,7 @@ export function SegmentedTabs<T extends string>({
 
     const fg = selected
       ? onDark
-        ? '#ffffff'
+        ? n[0]
         : scheme.onPrimary
       : onDark
         ? 'rgba(255,255,255,0.66)'

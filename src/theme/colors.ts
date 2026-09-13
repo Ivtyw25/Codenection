@@ -22,6 +22,17 @@ export const brand = {
   amber: '#fdd130',
   /** Brand-tinted green-grey. 52 uses. */
   moss: '#536555',
+  /**
+   * Muted terracotta. The depleted/critical wash behind the mascot.
+   *
+   * A token rather than the loose `#d98a72` it used to be in `PipMascot`. It is
+   * deliberately NOT `status.danger.solid` (#a8422c): that is an alert colour,
+   * sized for text and borders, and at the scale of a 300px ambient glow it
+   * reads as a warning light. The whole design premise is that the app tells a
+   * struggling student the truth without flashing red at them, so the low
+   * states get a warm desaturated wash — visibly not-green, audibly not-alarm.
+   */
+  clay: '#d98a72',
 } as const;
 
 /**

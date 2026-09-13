@@ -56,7 +56,7 @@ export function VitalCard({ reading, onPress }: VitalCardProps) {
         <Txt variant="h3" color={status[tone].fg}>
           {reading.value}
         </Txt>
-        <Txt variant="caption" color={scheme.textDisabled} style={{ flex: 1 }}>
+        <Txt variant="caption" color={scheme.textMuted} style={{ flex: 1 }}>
           / {reading.target}
         </Txt>
         <ChevronRight size={15} color={scheme.textMuted} />
@@ -77,7 +77,7 @@ export function VitalCard({ reading, onPress }: VitalCardProps) {
         that was worth showing.
       */}
       <View style={styles.meta}>
-        <Txt variant="caption" color={scheme.textDisabled}>
+        <Txt variant="caption" color={scheme.textMuted}>
           {Math.round(reading.weight * 100)}% of reserve
         </Txt>
         {reading.delta !== 0 ? (
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  meta: { gap: 1 },
+  meta: { gap: space[0.5] },
   track: { height: 5, borderRadius: radius.pill, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: radius.pill },
 });

@@ -1,7 +1,7 @@
 import React, { type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { MIN_TAP_TARGET, n, radius, space, status, useScheme } from '@/theme';
+import { MIN_TAP_TARGET, n, radius, space, status, type, useScheme } from '@/theme';
 import { Interactive } from './Interactive';
 import { Spinner } from './Spinner';
 import { Txt } from './Txt';
@@ -107,5 +107,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: { fontSize: 10, lineHeight: 13 },
+  badgeText: { fontSize: type.caption.fontSize, lineHeight: type.caption.lineHeight },
 });

@@ -81,7 +81,7 @@ export function Timeline({
                 {day.date ? formatDayHeading(day.date, now) : 'NOT PLANNED YET'}
               </Txt>
               {day.totalMin > 0 ? (
-                <Txt variant="caption" color={scheme.textDisabled}>
+                <Txt variant="caption" color={scheme.textMuted}>
                   {formatEstimate(day.totalMin)}
                 </Txt>
               ) : null}
@@ -153,7 +153,7 @@ function TimelineRow({
   const dotColor = slot.done
     ? status.success.solid
     : locked
-      ? scheme.textDisabled
+      ? scheme.textMuted
       : slot.late
         ? status.danger.solid
         : assignee
@@ -169,11 +169,11 @@ function TimelineRow({
         <Txt
           variant="caption"
           style={styles.clock}
-          color={slot.done ? status.success.fg : dimmed ? scheme.textDisabled : scheme.textSecondary}
+          color={slot.done ? status.success.fg : dimmed ? scheme.textMuted : scheme.textSecondary}
         >
           {time}
         </Txt>
-        <Txt variant="caption" color={scheme.textDisabled}>
+        <Txt variant="caption" color={scheme.textMuted}>
           · {formatEstimate(slot.estimateMin)}
         </Txt>
         {slot.late ? <Chip label="Past deadline" size="sm" tone="danger" /> : null}
@@ -192,7 +192,7 @@ function TimelineRow({
                 : 'Locked. Waiting on earlier work.'
             }
           >
-            <Lock size={14} color={scheme.textDisabled} />
+            <Lock size={14} color={scheme.textMuted} />
           </View>
         ) : onToggle ? (
           <Checkbox
@@ -242,7 +242,7 @@ function TimelineRow({
         a rail into a form.
       */}
       {locked && waitingOn.length > 0 ? (
-        <Txt variant="caption" color={scheme.textDisabled} numberOfLines={1} style={styles.sub}>
+        <Txt variant="caption" color={scheme.textMuted} numberOfLines={1} style={styles.sub}>
           Waiting on {waitingOn.join(' + ')}
         </Txt>
       ) : assignee ? (

@@ -4,7 +4,7 @@ import { StyleSheet, Switch, View } from 'react-native';
 import { Button, Chip, Drawer, Txt } from '@/components/ui';
 import { isoDate } from '@/data/format';
 import { useApp } from '@/store/AppStore';
-import { space, useScheme } from '@/theme';
+import { radius, space, useScheme } from '@/theme';
 import type { RangeFilter, SortKey } from '@/types';
 
 const SORTS: { value: SortKey; label: string; hint: string }[] = [
@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     gap: space[2],
     padding: space[3],
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   switchRow: {
     flexDirection: 'row',

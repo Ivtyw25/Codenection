@@ -178,7 +178,7 @@ export default function CaptureScreen() {
             value={text}
             onChangeText={setText}
             placeholder="What's on your mind?"
-            placeholderTextColor={scheme.textDisabled}
+            placeholderTextColor={scheme.textMuted}
             multiline
             autoFocus={tab === 'text'}
             maxLength={MAX_CAPTURE}

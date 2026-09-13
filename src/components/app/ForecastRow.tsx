@@ -53,7 +53,7 @@ export function ForecastRow({ forecast, pressure, vitality, size = 'row' }: Fore
         size={size}
       />
 
-      <Txt variant="caption" color={scheme.textDisabled}>
+      <Txt variant="caption" color={scheme.textMuted}>
         {forecast.note}
       </Txt>
     </View>
@@ -83,15 +83,30 @@ function Line({
 
   const Icon = flat ? ArrowRight : delta > 0 ? ArrowUpRight : ArrowDownRight;
 
+  /*
+   * One fact, one announcement.
+   *
+   * Read child-by-child this row is five stops — "Vitality", "68%", "arrow",
+   * "74%", "+6" — to say a single thing. Worse, the direction is carried by an
+   * arrow glyph and a colour, neither of which survives being read aloud, so
+   * the one part that matters (is this getting better or worse?) was the part
+   * a screen-reader user could not get. The sentence says it in words.
+   */
+  const direction = flat ? 'unchanged at' : improving ? 'improving to' : 'worsening to';
+
   return (
-    <View style={styles.line}>
+    <View
+      accessible
+      accessibilityLabel={`${label}: ${direction} ${to} percent, from ${from}. ${flat ? 'No change' : `${delta > 0 ? 'Up' : 'Down'} ${Math.abs(delta)}`}.`}
+      style={styles.line}
+    >
       <Txt variant={size === 'block' ? 'bodySm' : 'caption'} muted style={styles.label}>
         {label}
       </Txt>
-      <Txt variant="caption" color={scheme.textDisabled}>
+      <Txt variant="caption" color={scheme.textMuted}>
         {from}%
       </Txt>
-      <ArrowRight size={12} color={scheme.textDisabled} />
+      <ArrowRight size={12} color={scheme.textMuted} />
       <Txt variant={size === 'block' ? 'h4' : 'label'} color={tone}>
         {to}%
       </Txt>
@@ -110,5 +125,5 @@ const styles = StyleSheet.create({
   eyebrow: { letterSpacing: 1 },
   line: { flexDirection: 'row', alignItems: 'center', gap: space[1.5] },
   label: { flex: 1 },
-  delta: { flexDirection: 'row', alignItems: 'center', gap: 2, minWidth: 64, justifyContent: 'flex-end' },
+  delta: { flexDirection: 'row', alignItems: 'center', gap: space[0.5], minWidth: 64, justifyContent: 'flex-end' },
 });
