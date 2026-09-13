@@ -71,11 +71,14 @@ Feature Set
 
 ### 2.2 Ideation Boards
 
- 
+ <img width="792" height="671" alt="codenection-Page-1 drawio" src="https://github.com/user-attachments/assets/26204b12-2513-43af-9d89-5742a3928de1" />
+
 
 This use case diagram maps out every interaction a student has with Pip across the GTD pipeline, helping us confirm that each core feature (Capture, Clarify, Engage, Reflect) had a clear actor-driven purpose before we committed it to the build scope. 
 
- 
+<img width="670" height="411" alt="codenection-Page-3 drawio" src="https://github.com/user-attachments/assets/2182cc3b-8d22-487c-b13c-7cee165ae238" />
+<img width="450" height="1251" alt="codenection-Page-2 drawio" src="https://github.com/user-attachments/assets/b5b6ab16-340d-402c-afec-1c8271480fc0" />
+
 
 This flowchart traces a task's full lifecycle from the moment a student captures it to how it eventually affects their Pressure/Vitality state, which is what helped us catch that our AI Clarify step and Pressure engine needed to talk to each other rather than running as separate features. 
 
@@ -168,7 +171,8 @@ Rather than silently rescheduling tasks or adjusting the user's plan, Pip surfac
 
 **System Architecture Diagram**
 
-  
+<img width="670" height="411" alt="codenection-Page-3 drawio" src="https://github.com/user-attachments/assets/bdb90267-41fc-49f6-a276-45d7476a5dc8" />
+
 
 This diagram shows how a capture flows from the React Native + Expo mobile app through our FastAPI backend into the AI processing layer (LangChain + Gemini Flash), before being persisted in Supabase (PostgreSQL), with Google Calendar, Apple HealthKit, and Mi Band feeding in as external data sources. We chose this layered structure so the AI orchestration step sits clearly between the API and database, making it easy to isolate and test independently during Week 2 of the build.
 
