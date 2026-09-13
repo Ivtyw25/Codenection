@@ -76,7 +76,7 @@ Feature Set
 
 This use case diagram maps out every interaction a student has with Pip across the GTD pipeline, helping us confirm that each core feature (Capture, Clarify, Engage, Reflect) had a clear actor-driven purpose before we committed it to the build scope. 
 
-<img width="670" height="411" alt="codenection-Page-3 drawio" src="https://github.com/user-attachments/assets/2182cc3b-8d22-487c-b13c-7cee165ae238" />
+
 <img width="450" height="1251" alt="codenection-Page-2 drawio" src="https://github.com/user-attachments/assets/b5b6ab16-340d-402c-afec-1c8271480fc0" />
 
 
